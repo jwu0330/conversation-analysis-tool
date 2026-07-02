@@ -1,6 +1,9 @@
 """序列分析專用圖表（Plotly，獨立於 src/core/charts）。"""
 from __future__ import annotations
 
+import math
+
+import graphviz
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -51,42 +54,61 @@ def transition_sankey(trans_group: pd.DataFrame, title: str = "") -> go.Figure:
     return fig
 
 
-def transition_dot(trans_group: pd.DataFrame, high_min: int = 4) -> str:
-    """產生 Graphviz DOT 字串：節點=Bloom Level 圓圈，箭頭=轉移。
+def _ring_positions(levels: list[int], radius: float = 2.4) -> dict[int, tuple[float, float]]:
+    """把各 Level 均勻釘在圓周上（6 個即成六邊形），由高到低順時針排列。"""
+    ordered = sorted(levels)
+    n = max(len(ordered), 1)
+    pos: dict[int, tuple[float, float]] = {}
+    for i, lv in enumerate(ordered):
+        angle = math.radians(90 - i * 360.0 / n)  # 從頂端開始，順時針
+        pos[lv] = (round(radius * math.cos(angle), 3), round(radius * math.sin(angle), 3))
+    return pos
 
-    - 箭頭粗細與數字 = 該轉移出現次數（相對最大值縮放）
-    - 支援自我迴圈（例如 L2→L2，代表連續同層級提問）
-    - 箭頭統一單色（只表達次數，不編碼方向）
-    - 圓圈只有兩色：藍=低階、紅=高階（以 high_min 為界，對應研究概念）
-    以 st.graphviz_chart(dot) 顯示，前端渲染，不需安裝 Graphviz 主程式。
+
+def transition_graph(
+    trans_group: pd.DataFrame,
+    levels: list[int],
+    high_min: int = 4,
+) -> graphviz.Digraph:
+    """Bloom 轉移網絡圖（節點位置固定成六邊形）。
+
+    - 節點：圓圈釘在圓周固定位置（跨組一致，不會每次亂飄）。
+      顏色 🔵藍=低階、🔴紅=高階（以 high_min 為界）。
+    - 箭頭方向配色：綠=往較高 Bloom、橘=往較低、灰=同層級(自我迴圈)。
+    - 箭頭粗細與數字 = 轉移次數。
+    傳給 st.graphviz_chart() 顯示；用 neato 引擎才能吃固定座標。
     """
-    if trans_group.empty:
-        return 'digraph { label="資料不足，無法繪圖"; labelloc="t"; }'
+    up_c, down_c, loop_c = "#27AE60", "#E67E22", "#95A5A6"
+    low_c, high_c = "#5DADE2", "#E74C3C"
 
-    levels = sorted(set(trans_group["Source"]) | set(trans_group["Target"]))
-    max_count = max(int(trans_group["次數"].max()), 1)
+    g = graphviz.Digraph(engine="neato")
+    g.attr(bgcolor="white", outputorder="edgesfirst", overlap="false")
+    g.attr(
+        "node", shape="circle", style="filled", fontcolor="white",
+        fontsize="14", width="0.7", fixedsize="true", penwidth="0",
+    )
 
-    low_color, high_color, edge_color = "#5DADE2", "#E74C3C", "#5D6D7E"
+    positions = _ring_positions(levels)
+    for lv in sorted(levels):
+        x, y = positions[lv]
+        fill = high_c if lv >= high_min else low_c
+        g.node(f"L{lv}", label=f"L{lv}", pos=f"{x},{y}!", fillcolor=fill)
 
-    lines = [
-        "digraph {",
-        "  rankdir=LR;",
-        '  bgcolor="white";',
-        '  node [shape=circle, style=filled, fontcolor=white, '
-        'fontsize=14, width=0.65, fixedsize=true];',
-        f'  edge [fontsize=12, color="{edge_color}", fontcolor="{edge_color}"];',
-    ]
-    for lv in levels:
-        fill = high_color if lv >= high_min else low_color
-        lines.append(f'  L{lv} [label="L{lv}", fillcolor="{fill}"];')
-    for r in trans_group.itertuples():
-        width = 1.0 + 6.0 * (r.次數 / max_count)
-        lines.append(
-            f'  L{r.Source} -> L{r.Target} '
-            f'[penwidth={width:.2f}, label="{r.次數}"];'
-        )
-    lines.append("}")
-    return "\n".join(lines)
+    if not trans_group.empty:
+        max_count = max(int(trans_group["次數"].max()), 1)
+        for r in trans_group.itertuples():
+            width = 1.0 + 5.0 * (r.次數 / max_count)
+            if r.Target > r.Source:
+                color = up_c
+            elif r.Target < r.Source:
+                color = down_c
+            else:
+                color = loop_c
+            g.edge(
+                f"L{int(r.Source)}", f"L{int(r.Target)}", label=f" {r.次數}",
+                penwidth=f"{width:.2f}", color=color, fontcolor=color, fontsize="12",
+            )
+    return g
 
 
 def transition_heatmap(matrix: pd.DataFrame, title: str = "") -> go.Figure:

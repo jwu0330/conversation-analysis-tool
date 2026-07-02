@@ -91,8 +91,9 @@ with tab_table:
 # ③ 轉移圖（圈圈箭頭網絡圖 + Sankey + 矩陣熱圖）
 with tab_diagram:
     st.caption(
-        "圓圈＝Bloom Level（🔵藍＝低階、🔴紅＝高階），箭頭＝前題轉到後題"
-        "（含 L2→L2 自我迴圈）。箭頭越粗、數字越大＝該轉移次數越多。"
+        "圓圈＝Bloom Level（🔵藍＝低階、🔴紅＝高階），位置固定成六邊形。"
+        "箭頭：🟢綠＝往較高階、🟠橘＝往較低階、⚪灰＝停在同層（自我迴圈）；"
+        "箭頭越粗、數字越大＝該轉移次數越多。"
     )
     normalize = st.radio(
         "矩陣數值", ["次數", "列機率(%)"], horizontal=True,
@@ -102,9 +103,9 @@ with tab_diagram:
         st.markdown(f"#### {grp}")
         g_trans = trans_shown[trans_shown["組別"] == grp]
 
-        # 圈圈箭頭轉移網絡圖（使用者指定的圖）
+        # 圈圈箭頭轉移網絡圖（六邊形固定位置）
         st.graphviz_chart(
-            seq_charts.transition_dot(g_trans, high_min=int(high_min)),
+            seq_charts.transition_graph(g_trans, levels, high_min=int(high_min)),
             width="stretch",
         )
 
