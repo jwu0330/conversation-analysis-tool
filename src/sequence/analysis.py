@@ -33,16 +33,19 @@ def guess_columns(columns: list[str]) -> dict[str, str | None]:
     lower = {c: str(c).lower() for c in columns}
 
     def find(keywords: list[str]) -> str | None:
-        for col, low in lower.items():
-            if any(k in low or k in str(col) for k in keywords):
-                return col
+        # 依關鍵字優先序尋找：先找較明確的字（如「學生」）再找通用字（如「id」），
+        # 避免「對話ID」因含 id 被誤判為學生欄位。
+        for kw in keywords:
+            for col, low in lower.items():
+                if kw in low or kw in str(col):
+                    return col
         return None
 
     return {
-        "student": find(["student", "學生", "sid", "id"]),
-        "group": find(["group", "組別", "組"]),
+        "student": find(["學生", "student", "sid", "id"]),
+        "group": find(["組別", "group", "組"]),
         "bloom": find(["bloom", "層級", "level"]),
-        "order": find(["order", "序", "time", "時間", "create", "對話"]),
+        "order": find(["order", "題序", "序號", "對話", "create", "序", "time", "時間"]),
     }
 
 

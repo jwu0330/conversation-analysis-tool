@@ -88,8 +88,12 @@ with tab_table:
     st.dataframe(trans, width="stretch", hide_index=True)
     state.register_export_table("序列_Bloom轉移表", trans)
 
-# ③ 轉移圖（每組 Sankey + 矩陣熱圖）
+# ③ 轉移圖（圈圈箭頭網絡圖 + Sankey + 矩陣熱圖）
 with tab_diagram:
+    st.caption(
+        "🔵 圓圈＝Bloom Level，箭頭＝前題轉到後題（含 L2→L2 自我迴圈），"
+        "箭頭越粗＝次數越多。顏色：綠＝往高階、橘＝往低階、灰＝同層級。"
+    )
     normalize = st.radio(
         "矩陣數值", ["次數", "列機率(%)"], horizontal=True,
         help="列機率＝前題為某 Level 時，接續各 Level 的百分比",
@@ -97,19 +101,28 @@ with tab_diagram:
     for grp in groups:
         st.markdown(f"#### {grp}")
         g_trans = trans_shown[trans_shown["組別"] == grp]
-        colA, colB = st.columns(2)
-        with colA:
-            st.plotly_chart(
-                seq_charts.transition_sankey(g_trans, title=f"{grp}：Bloom 轉移路徑"),
-                width="stretch",
-            )
-        with colB:
-            matrix = seq.transition_matrix(trans, grp, levels, normalize=normalize)
-            st.plotly_chart(
-                seq_charts.transition_heatmap(matrix, title=f"{grp}：轉移矩陣"),
-                width="stretch",
-            )
-            state.register_export_table(f"序列_轉移矩陣_{grp}", matrix)
+
+        # 圈圈箭頭轉移網絡圖（使用者指定的圖）
+        st.graphviz_chart(
+            seq_charts.transition_dot(g_trans, high_min=int(high_min)),
+            width="stretch",
+        )
+
+        with st.expander(f"{grp}：Sankey 流向圖與轉移矩陣"):
+            colA, colB = st.columns(2)
+            with colA:
+                st.plotly_chart(
+                    seq_charts.transition_sankey(g_trans, title=f"{grp}：Bloom 轉移路徑"),
+                    width="stretch",
+                )
+            with colB:
+                matrix = seq.transition_matrix(trans, grp, levels, normalize=normalize)
+                st.plotly_chart(
+                    seq_charts.transition_heatmap(matrix, title=f"{grp}：轉移矩陣"),
+                    width="stretch",
+                )
+        matrix = seq.transition_matrix(trans, grp, levels, normalize=normalize)
+        state.register_export_table(f"序列_轉移矩陣_{grp}", matrix)
 
 # ④ 高低階轉移
 with tab_highlow:
