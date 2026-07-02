@@ -97,6 +97,32 @@ python tests/test_core.py       # 內建簡易 runner
 python -m pytest -q             # 若已安裝 pytest
 ```
 
+## 快速啟動（Windows）
+
+雙擊專案根目錄的 **`run.bat`** 即可。第一次會自動建立虛擬環境並安裝套件，之後每次雙擊直接啟動網頁。要關閉就關掉那個黑色視窗。
+
+## 網頁跑不起來？故障排除
+
+先執行診斷腳本，它會逐項檢查並告訴你問題在哪：
+
+```bash
+.venv\Scripts\python.exe scripts\check_env.py   # Windows
+./.venv/bin/python scripts/check_env.py         # macOS/Linux
+```
+
+常見狀況對照：
+
+| 症狀 | 原因 | 解法 |
+| --- | --- | --- |
+| 瀏覽器打不開、連線被拒 | 伺服器沒在跑（關過視窗／電腦重開／程序被中止） | 重新雙擊 `run.bat`，或 `streamlit run app.py` |
+| `Port 8501 is already in use` | 上次沒關乾淨，埠被占用 | 換埠：`streamlit run app.py --server.port=8502`，或關掉舊的黑視窗 |
+| `ModuleNotFoundError` | 套件沒裝，或沒啟動虛擬環境 | `pip install -r requirements.txt`（先確認已 activate `.venv`） |
+| `python 不是內部或外部命令` | 沒裝 Python 或沒加入 PATH | 重新安裝 Python，勾選 **Add Python to PATH** |
+| 網頁一直轉圈／改了程式沒更新 | 舊的執行階段卡住 | 瀏覽器按 F5；或關掉視窗重開 |
+| 頁面顯示「尚未載入資料」 | 還沒上傳或載入範例 | 首頁點「🎯 一鍵載入內建範例資料」 |
+
+> 注意：關掉終端機視窗＝關掉網頁。網頁只有在那個視窗（或 `run.bat`）持續執行時才連得上。
+
 ## 授權
 
 依專案需求自訂。
