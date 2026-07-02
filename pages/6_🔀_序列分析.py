@@ -91,8 +91,8 @@ with tab_table:
 # ③ 轉移圖（圈圈箭頭網絡圖 + Sankey + 矩陣熱圖）
 with tab_diagram:
     st.caption(
-        "🔵 圓圈＝Bloom Level，箭頭＝前題轉到後題（含 L2→L2 自我迴圈），"
-        "箭頭越粗＝次數越多。顏色：綠＝往高階、橘＝往低階、灰＝同層級。"
+        "圓圈＝Bloom Level（🔵藍＝低階、🔴紅＝高階），箭頭＝前題轉到後題"
+        "（含 L2→L2 自我迴圈）。箭頭越粗、數字越大＝該轉移次數越多。"
     )
     normalize = st.radio(
         "矩陣數值", ["次數", "列機率(%)"], horizontal=True,

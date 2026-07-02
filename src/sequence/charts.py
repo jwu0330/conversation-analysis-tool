@@ -54,9 +54,10 @@ def transition_sankey(trans_group: pd.DataFrame, title: str = "") -> go.Figure:
 def transition_dot(trans_group: pd.DataFrame, high_min: int = 4) -> str:
     """產生 Graphviz DOT 字串：節點=Bloom Level 圓圈，箭頭=轉移。
 
-    - 箭頭粗細 = 該轉移出現次數（相對最大值縮放）
+    - 箭頭粗細與數字 = 該轉移出現次數（相對最大值縮放）
     - 支援自我迴圈（例如 L2→L2，代表連續同層級提問）
-    - 箭頭顏色：往高階=綠、往低階=橘、同層級=灰，直觀看出「低轉高」
+    - 箭頭統一單色（只表達次數，不編碼方向）
+    - 圓圈只有兩色：藍=低階、紅=高階（以 high_min 為界，對應研究概念）
     以 st.graphviz_chart(dot) 顯示，前端渲染，不需安裝 Graphviz 主程式。
     """
     if trans_group.empty:
@@ -65,28 +66,24 @@ def transition_dot(trans_group: pd.DataFrame, high_min: int = 4) -> str:
     levels = sorted(set(trans_group["Source"]) | set(trans_group["Target"]))
     max_count = max(int(trans_group["次數"].max()), 1)
 
+    low_color, high_color, edge_color = "#5DADE2", "#E74C3C", "#5D6D7E"
+
     lines = [
         "digraph {",
         "  rankdir=LR;",
         '  bgcolor="white";',
         '  node [shape=circle, style=filled, fontcolor=white, '
         'fontsize=14, width=0.65, fixedsize=true];',
-        "  edge [fontsize=11];",
+        f'  edge [fontsize=12, color="{edge_color}", fontcolor="{edge_color}"];',
     ]
     for lv in levels:
-        color = _LEVEL_COLOR.get(int(lv), "#7F8C8D")
-        lines.append(f'  L{lv} [label="L{lv}", fillcolor="{color}"];')
+        fill = high_color if lv >= high_min else low_color
+        lines.append(f'  L{lv} [label="L{lv}", fillcolor="{fill}"];')
     for r in trans_group.itertuples():
         width = 1.0 + 6.0 * (r.次數 / max_count)
-        if r.Target > r.Source:
-            edge_color = "#27AE60"      # 往高階：綠
-        elif r.Target < r.Source:
-            edge_color = "#E67E22"      # 往低階：橘
-        else:
-            edge_color = "#95A5A6"      # 同層級：灰
         lines.append(
             f'  L{r.Source} -> L{r.Target} '
-            f'[penwidth={width:.2f}, label="{r.次數}", color="{edge_color}"];'
+            f'[penwidth={width:.2f}, label="{r.次數}"];'
         )
     lines.append("}")
     return "\n".join(lines)
