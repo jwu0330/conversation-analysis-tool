@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import re
 
+import numpy as np
 import pandas as pd
+from scipy import stats
 
 # 標準欄位名（模組內部統一使用）
 STUDENT, GROUP, BLOOM, ORDER = "StudentID", "Group", "Bloom", "Order"
@@ -156,3 +158,118 @@ def position_profile(work: pd.DataFrame) -> pd.DataFrame:
     )
     prof["平均Bloom"] = prof["平均Bloom"].round(2)
     return prof
+
+
+# ---------------------------------------------------------------------------
+# GSEQ 式滯後序列分析（Lag-1）
+#
+# 公式（Bakeman & Gottman, 1997；Allison & Liker, 1982 的調整殘差）：
+#   令 O = 轉移次數矩陣（列=前題 Source，欄=後題 Target），N = 總轉移數，
+#   R_i = 第 i 列總和（從 i 出發的轉移數），C_j = 第 j 欄總和（進入 j 的轉移數）。
+#
+#   期望次數     E_ij = R_i * C_j / N
+#   轉移機率     P_ij = O_ij / R_i                （P(下一題=j | 前一題=i)）
+#   調整後殘差   z_ij = (O_ij - E_ij) / sqrt( E_ij * (1 - R_i/N) * (1 - C_j/N) )
+#   雙尾 p 值    p_ij = 2 * (1 - Φ(|z_ij|))
+#   顯著判準     |z| > z_crit（α=0.05 時 z_crit≈1.96）→ 該轉移顯著偏多/偏少
+# ---------------------------------------------------------------------------
+
+
+def gseq_stats(
+    trans: pd.DataFrame,
+    group: str,
+    levels: list[int],
+    alpha: float = 0.05,
+) -> pd.DataFrame:
+    """對單一組別計算 GSEQ 式滯後序列統計（長格式，一列一個轉移）。
+
+    欄位：組別、Source、Target、觀察次數、期望次數、轉移機率、調整殘差z、p值、顯著。
+    """
+    obs = transition_matrix(trans, group, levels, normalize=False)
+    idx = list(obs.index)
+    o_mat = obs.to_numpy(dtype=float)
+    n = float(o_mat.sum())
+    row_tot = o_mat.sum(axis=1)
+    col_tot = o_mat.sum(axis=0)
+    z_crit = float(stats.norm.ppf(1 - alpha / 2))
+
+    records: list[dict] = []
+    for i, s_lab in enumerate(idx):
+        for j, t_lab in enumerate(idx):
+            o = o_mat[i, j]
+            e = row_tot[i] * col_tot[j] / n if n > 0 else float("nan")
+            p_trans = o / row_tot[i] if row_tot[i] > 0 else float("nan")
+            var = e * (1 - row_tot[i] / n) * (1 - col_tot[j] / n) if n > 0 else float("nan")
+            z = (o - e) / np.sqrt(var) if (var is not None and var > 0) else float("nan")
+            if np.isnan(z):
+                p_val, sig = float("nan"), ""
+            else:
+                p_val = float(2 * (1 - stats.norm.cdf(abs(z))))
+                sig = "↑ 顯著偏多" if z >= z_crit else "↓ 顯著偏少" if z <= -z_crit else ""
+            records.append(
+                {
+                    "組別": group,
+                    "Source": s_lab,
+                    "Target": t_lab,
+                    "觀察次數": int(o),
+                    "期望次數": round(e, 2) if e == e else None,
+                    "轉移機率": round(p_trans, 3) if p_trans == p_trans else None,
+                    "調整殘差z": round(z, 2) if z == z else None,
+                    "p值": round(p_val, 4) if p_val == p_val else None,
+                    "顯著": sig,
+                }
+            )
+    return pd.DataFrame.from_records(records)
+
+
+def gseq_all_groups(
+    trans: pd.DataFrame,
+    groups: list[str],
+    levels: list[int],
+    alpha: float = 0.05,
+) -> pd.DataFrame:
+    """對所有組別計算 GSEQ 統計並合併。"""
+    frames = [gseq_stats(trans, g, levels, alpha) for g in groups]
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
+def analyze(
+    df: pd.DataFrame,
+    student_col: str,
+    group_col: str,
+    bloom_col: str,
+    order_col: str,
+    *,
+    include_l0: bool = True,
+    high_min: int = 4,
+    alpha: float = 0.05,
+) -> dict:
+    """一次跑完整條序列分析管線，回傳所有結果。
+
+    這是「抽象出來的共用邏輯」：Streamlit 網頁與獨立 CLI 都呼叫此函式，
+    因此兩邊算出的數字必然一致（同一份程式碼、同一組參數）。
+    """
+    work = prepare(df, student_col, group_col, bloom_col, order_col, include_l0=include_l0)
+    levels = all_levels(work)
+    groups = sorted(work[GROUP].unique().tolist()) if not work.empty else []
+    trans = transitions(work)
+    return {
+        "work": work,
+        "levels": levels,
+        "groups": groups,
+        "sequences": build_sequences(work),
+        "transitions": trans,
+        "matrices": {g: transition_matrix(trans, g, levels) for g in groups},
+        "gseq": gseq_all_groups(trans, groups, levels, alpha),
+        "highlow": high_low_transitions(work, high_min=high_min),
+        "profile": position_profile(work),
+        "params": {
+            "student_col": student_col,
+            "group_col": group_col,
+            "bloom_col": bloom_col,
+            "order_col": order_col,
+            "include_l0": include_l0,
+            "high_min": high_min,
+            "alpha": alpha,
+        },
+    }

@@ -70,8 +70,8 @@ st.caption(
 trans = seq.transitions(work)
 trans_shown = trans[trans["次數"] >= min_edge]
 
-tab_seq, tab_table, tab_diagram, tab_highlow, tab_flow = st.tabs(
-    ["個人序列", "轉移表", "轉移圖", "高低階轉移", "題序流動圖"]
+tab_seq, tab_table, tab_diagram, tab_gseq, tab_highlow, tab_flow = st.tabs(
+    ["個人序列", "轉移表", "轉移圖", "GSEQ 顯著轉移", "高低階轉移", "題序流動圖"]
 )
 
 # ① 個人序列
@@ -124,6 +124,31 @@ with tab_diagram:
                 )
         matrix = seq.transition_matrix(trans, grp, levels, normalize=normalize)
         state.register_export_table(f"序列_轉移矩陣_{grp}", matrix)
+
+# ③-2 GSEQ 顯著轉移
+with tab_gseq:
+    st.caption(
+        "GSEQ 式滯後序列分析：比對每個轉移的『觀察 vs 期望』次數，"
+        "算出**調整殘差 z**——|z|>1.96 表示該轉移顯著多於（↑）或少於（↓）隨機預期。"
+        "這回答的是『哪些轉移是真正的模式，而非因某層級本來就常見』。詳見 docs/序列分析方法.md。"
+    )
+    alpha = st.selectbox("顯著水準 α", [0.05, 0.01, 0.10], index=0)
+    only_sig = st.checkbox("只顯示達顯著的轉移", value=True)
+    gseq_all = seq.gseq_all_groups(trans, groups, levels, alpha=alpha)
+    for grp in groups:
+        st.markdown(f"#### {grp}")
+        gdf = gseq_all[gseq_all["組別"] == grp]
+        shown = gdf[gdf["顯著"] != ""] if only_sig else gdf
+        shown = shown.sort_values("調整殘差z", ascending=False)
+        if shown.empty:
+            st.info("（此組沒有達顯著的轉移）")
+        else:
+            st.dataframe(shown, width="stretch", hide_index=True)
+        state.register_export_table(f"序列_GSEQ統計_{grp}", gdf)
+    st.caption(
+        "註：期望次數過低（<5）時 z 的常態近似會變差，需謹慎解讀；"
+        "本工具目前為 Lag-1，如需多重 Lag 可再匯出資料轉入正式 GSEQ。"
+    )
 
 # ④ 高低階轉移
 with tab_highlow:
