@@ -14,7 +14,8 @@ from src.core import data_loader
 
 # 專案根目錄（本檔位於 src/datasets.py）
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BUILTIN_DIRS = ["sample_data", "data"]  # 掃描順序（sample_data 為測試資料一）
+# 序列/對話分析用的內建資料來源（量化分析資料另放 data/量化/，由準實驗模組讀取）
+BUILTIN_DIRS = ["sample_data", os.path.join("data", "對話分析")]
 _CN_NUM = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
 
 
