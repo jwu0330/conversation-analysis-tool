@@ -20,6 +20,20 @@ st.markdown(
     "此模組後端獨立，不影響前面的描述統計/檢定。"
 )
 
+with st.expander("📐 計算方式與公式（摘要）"):
+    st.markdown(
+        "**步驟**：每位學生依排序欄位排出 Bloom 序列 → 取相鄰兩題 (Lag-1) 統計"
+        "「前題 i → 後題 j」的轉移次數 O。\n\n"
+        "**GSEQ 式指標**（$R_i$＝列和、$C_j$＝欄和、$N$＝總轉移數）："
+    )
+    st.latex(r"E_{ij}=\frac{R_i\,C_j}{N}\quad\ "
+             r"P_{ij}=\frac{O_{ij}}{R_i}\quad\ "
+             r"z_{ij}=\frac{O_{ij}-E_{ij}}{\sqrt{E_{ij}\,(1-R_i/N)(1-C_j/N)}}")
+    st.markdown(
+        "期望次數 $E$、轉移機率 $P$、調整後殘差 $z$；$|z|>1.96$ 即該轉移顯著偏多(↑)/偏少(↓)。"
+        "完整推導與參考文獻見 `docs/序列分析方法.md`。"
+    )
+
 df = state.require_data()
 
 # --- 欄位對應（自動猜測，可手動調整）---
