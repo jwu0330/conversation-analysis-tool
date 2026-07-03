@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 
 import graphviz
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -159,4 +160,88 @@ def _empty_fig(title: str) -> go.Figure:
         template=_TEMPLATE,
         annotations=[dict(text="資料不足，無法繪圖", showarrow=False, font_size=16)],
     )
+    return fig
+
+
+# 組別配色（實驗/對照或其他），依出現順序循環
+_GROUP_PALETTE = ["#2E86C1", "#E67E22", "#27AE60", "#8E44AD", "#16A085"]
+
+
+def _hex_to_rgba(hex_color: str, alpha: float) -> str:
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return f"rgba({r},{g},{b},{alpha})"
+
+
+def trend_figure(
+    points: pd.DataFrame,
+    bands: dict,
+    high_min: int,
+    level_min: int,
+    level_max: int,
+    show_band: bool = True,
+    show_zones: bool = True,
+    title: str = "",
+) -> go.Figure:
+    """題序 × Bloom Level 趨勢圖：散布點 + 每組迴歸線(含信賴區帶) + 高低階底色。
+
+    points: 欄位 學生、組別、題序、Bloom。
+    bands:  {組別: regression_band() 的回傳 dict 或 None}。
+    """
+    fig = go.Figure()
+    groups = list(dict.fromkeys(points["組別"].tolist()))
+    color_of = {g: _GROUP_PALETTE[i % len(_GROUP_PALETTE)] for i, g in enumerate(groups)}
+    rng = np.random.default_rng(0)  # 固定種子 → 抖動可重現
+
+    # 高低階底色帶
+    if show_zones:
+        fig.add_hrect(y0=high_min - 0.5, y1=level_max + 0.5,
+                      fillcolor="rgba(231,76,60,0.07)", line_width=0, layer="below")
+        fig.add_hrect(y0=level_min - 0.5, y1=high_min - 0.5,
+                      fillcolor="rgba(93,173,226,0.07)", line_width=0, layer="below")
+
+    for g in groups:
+        c = color_of[g]
+        sub = points[points["組別"] == g]
+        jitter = rng.uniform(-0.12, 0.12, size=len(sub))
+        # 散布點
+        fig.add_trace(go.Scatter(
+            x=sub["題序"] + jitter, y=sub["Bloom"], mode="markers",
+            name=f"{g}（提問）", legendgroup=g,
+            marker=dict(color=_hex_to_rgba(c, 0.45), size=6),
+            hovertemplate="題序%{x:.0f}<br>Bloom L%{y}<extra></extra>",
+        ))
+        band = bands.get(g)
+        if band is not None:
+            if show_band:
+                fig.add_trace(go.Scatter(
+                    x=np.concatenate([band["x"], band["x"][::-1]]),
+                    y=np.concatenate([band["hi"], band["lo"][::-1]]),
+                    fill="toself", fillcolor=_hex_to_rgba(c, 0.15),
+                    line=dict(width=0), hoverinfo="skip",
+                    name=f"{g} 95%信賴區", legendgroup=g, showlegend=False,
+                ))
+            fig.add_trace(go.Scatter(
+                x=band["x"], y=band["y"], mode="lines",
+                line=dict(color=c, width=3),
+                name=f"{g} 迴歸線 (斜率={band['slope']:.3f})", legendgroup=g,
+            ))
+
+    fig.update_layout(title=title, template=_TEMPLATE, xaxis_title="題序（第幾題）",
+                      yaxis_title="Bloom Level", hovermode="closest")
+    fig.update_yaxes(dtick=1, range=[level_min - 0.6, level_max + 0.6])
+    fig.update_xaxes(dtick=1)
+    return fig
+
+
+def student_slope_box(slopes: pd.DataFrame, title: str = "") -> go.Figure:
+    """每位學生迴歸斜率的箱型圖，比較各組（斜率>0＝該生提問逐步深化）。"""
+    if slopes.empty:
+        return _empty_fig(title)
+    fig = px.box(slopes, x="組別", y="斜率", color="組別", points="all",
+                 title=title, template=_TEMPLATE,
+                 hover_data=["學生", "提問數"])
+    fig.add_hline(y=0, line_dash="dash", line_color="#7F8C8D",
+                  annotation_text="斜率=0（無升降趨勢）")
+    fig.update_yaxes(title="個別學生迴歸斜率")
     return fig

@@ -263,6 +263,9 @@ def analyze(
         "gseq": gseq_all_groups(trans, groups, levels, alpha),
         "highlow": high_low_transitions(work, high_min=high_min),
         "profile": position_profile(work),
+        "points": position_points(work),
+        "regressions": regression_by_group(work),
+        "student_slopes": student_slopes(work),
         "params": {
             "student_col": student_col,
             "group_col": group_col,
@@ -273,3 +276,87 @@ def analyze(
             "alpha": alpha,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# 題序 × Bloom Level 趨勢／軌跡分析（線性迴歸）
+#
+#   對每一組（或每一位學生）以「題序 x」預測「Bloom Level y」做簡單線性迴歸：
+#       ŷ = a + b·x
+#   斜率 b > 0 且顯著 → 提問隨時間逐步深化。
+#   平均反應線的 95% 信賴區帶：ŷ ± t(1-α/2, n-2) · s · sqrt(1/n + (x-x̄)²/Sxx)
+# ---------------------------------------------------------------------------
+
+
+def position_points(work: pd.DataFrame) -> pd.DataFrame:
+    """每一題一列，附上該生的題序（第幾題），供散布圖與迴歸使用。"""
+    w = _ordered(work).copy()
+    w["題序"] = w.groupby([STUDENT], sort=False).cumcount() + 1
+    return w[[STUDENT, GROUP, "題序", BLOOM]].rename(
+        columns={STUDENT: "學生", GROUP: "組別", BLOOM: "Bloom"}
+    )
+
+
+def regression_by_group(work: pd.DataFrame) -> pd.DataFrame:
+    """各組「題序→Bloom」線性迴歸：斜率、截距、R²、p 值、樣本數。"""
+    pts = position_points(work)
+    rows: list[dict] = []
+    for g, sub in pts.groupby("組別", sort=True):
+        if len(sub) >= 3 and sub["題序"].nunique() >= 2:
+            res = stats.linregress(sub["題序"].to_numpy(float), sub["Bloom"].to_numpy(float))
+            rows.append(
+                {
+                    "組別": g,
+                    "斜率": round(float(res.slope), 4),
+                    "截距": round(float(res.intercept), 3),
+                    "R²": round(float(res.rvalue) ** 2, 3),
+                    "p值": round(float(res.pvalue), 4),
+                    "顯著": "是" if res.pvalue < 0.05 else "否",
+                    "n": int(len(sub)),
+                }
+            )
+        else:
+            rows.append({"組別": g, "斜率": None, "截距": None, "R²": None,
+                         "p值": None, "顯著": "-", "n": int(len(sub))})
+    return pd.DataFrame(rows)
+
+
+def regression_band(
+    work: pd.DataFrame, group: str, alpha: float = 0.05, n_grid: int = 60
+) -> dict | None:
+    """回傳某組迴歸線與 95% 信賴區帶的座標（x, y_fit, lo, hi）；不足以迴歸則回 None。"""
+    pts = position_points(work)
+    sub = pts[pts["組別"] == group]
+    x = sub["題序"].to_numpy(float)
+    y = sub["Bloom"].to_numpy(float)
+    n = len(x)
+    if n < 3 or np.ptp(x) == 0:
+        return None
+    res = stats.linregress(x, y)
+    x_bar = x.mean()
+    sxx = float(((x - x_bar) ** 2).sum())
+    resid = y - (res.intercept + res.slope * x)
+    s = float(np.sqrt((resid ** 2).sum() / (n - 2)))
+    t_crit = float(stats.t.ppf(1 - alpha / 2, n - 2))
+    xg = np.linspace(x.min(), x.max(), n_grid)
+    y_fit = res.intercept + res.slope * xg
+    se = s * np.sqrt(1.0 / n + (xg - x_bar) ** 2 / sxx) if sxx > 0 else np.zeros_like(xg)
+    return {
+        "x": xg,
+        "y": y_fit,
+        "lo": y_fit - t_crit * se,
+        "hi": y_fit + t_crit * se,
+        "slope": float(res.slope),
+    }
+
+
+def student_slopes(work: pd.DataFrame, min_points: int = 3) -> pd.DataFrame:
+    """每位學生自己的「題序→Bloom」迴歸斜率（至少 min_points 題才計），供箱型圖比較。"""
+    pts = position_points(work)
+    rows: list[dict] = []
+    for (sid, g), sub in pts.groupby(["學生", "組別"], sort=False):
+        if len(sub) >= min_points and sub["題序"].nunique() >= 2:
+            res = stats.linregress(sub["題序"].to_numpy(float), sub["Bloom"].to_numpy(float))
+            rows.append({"學生": sid, "組別": g, "斜率": round(float(res.slope), 4),
+                         "提問數": int(len(sub))})
+    return pd.DataFrame(rows)

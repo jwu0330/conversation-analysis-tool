@@ -84,8 +84,8 @@ st.caption(
 trans = seq.transitions(work)
 trans_shown = trans[trans["次數"] >= min_edge]
 
-tab_seq, tab_table, tab_diagram, tab_gseq, tab_highlow, tab_flow = st.tabs(
-    ["個人序列", "轉移表", "轉移圖", "GSEQ 顯著轉移", "高低階轉移", "題序流動圖"]
+tab_seq, tab_table, tab_diagram, tab_gseq, tab_highlow, tab_flow, tab_trend = st.tabs(
+    ["個人序列", "轉移表", "轉移圖", "GSEQ 顯著轉移", "高低階轉移", "題序流動圖", "趨勢/軌跡"]
 )
 
 # ① 個人序列
@@ -185,5 +185,64 @@ with tab_flow:
     )
     st.dataframe(profile, width="stretch", hide_index=True)
     state.register_export_table("序列_題序剖面", profile)
+
+# ⑥ 趨勢/軌跡（題序 × Bloom 的散布 + 線性迴歸 + 個別學生斜率）
+with tab_trend:
+    st.caption(
+        "X＝題序（時間）、Y＝Bloom Level。散布點＝每一題提問；每組配一條**線性迴歸線**"
+        "（斜率＞0 且顯著＝提問隨時間逐步深化），陰影為 95% 信賴區帶，"
+        "底色區分高/低階。下方箱型圖比較**每位學生自己的迴歸斜率**，看多數人趨勢往哪走。"
+    )
+    o1, o2 = st.columns(2)
+    with o1:
+        show_zones = st.checkbox("顯示高低階底色", value=True)
+    with o2:
+        show_band = st.checkbox("顯示 95% 信賴區帶", value=True)
+
+    points = seq.position_points(work)
+    regs = seq.regression_by_group(work)
+    bands = {g: seq.regression_band(work, g) for g in groups}
+
+    st.plotly_chart(
+        seq_charts.trend_figure(
+            points, bands, high_min=int(high_min),
+            level_min=min(levels), level_max=max(levels),
+            show_band=show_band, show_zones=show_zones,
+            title="題序 × Bloom Level 趨勢",
+        ),
+        width="stretch",
+    )
+
+    st.markdown("**各組迴歸結果**（斜率＝每多問一題，Bloom 平均變化）")
+    st.dataframe(regs, width="stretch", hide_index=True)
+    for _, r in regs.iterrows():
+        if r["斜率"] is None:
+            continue
+        trend = "逐步深化 ↗" if r["斜率"] > 0 else "逐步下降 ↘" if r["斜率"] < 0 else "持平"
+        sig = "（顯著）" if r["顯著"] == "是" else "（未達顯著）"
+        st.write(
+            f"- **{r['組別']}**：斜率 {r['斜率']:+.3f}／題，R²={r['R²']}，"
+            f"p={r['p值']} {sig} → {trend}"
+        )
+    state.register_export_table("序列_趨勢迴歸", regs)
+
+    slopes = seq.student_slopes(work)
+    st.markdown("**個別學生迴歸斜率分布**（每點一位學生；斜率＞0＝該生提問逐步深化）")
+    st.plotly_chart(
+        seq_charts.student_slope_box(slopes, title="各組學生迴歸斜率比較"),
+        width="stretch",
+    )
+    if not slopes.empty:
+        summary = (
+            slopes.groupby("組別")["斜率"]
+            .agg(人數="count", 平均斜率="mean", 正斜率人數=lambda s: int((s > 0).sum()))
+            .reset_index()
+        )
+        summary["平均斜率"] = summary["平均斜率"].round(4)
+        summary["正斜率比例(%)"] = (
+            summary["正斜率人數"] / summary["人數"] * 100
+        ).round(1)
+        st.dataframe(summary, width="stretch", hide_index=True)
+        state.register_export_table("序列_學生斜率", slopes)
 
 st.success("序列分析結果已加入匯出清單，可到「📥 匯出」頁一併下載。")

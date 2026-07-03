@@ -92,6 +92,42 @@ def test_exclude_l0():
     assert 0 not in work[seq.BLOOM].tolist()
 
 
+def test_regression_slope():
+    # 題序越大 Bloom 越高 → 完美線性，斜率=1、R²=1
+    df = pd.DataFrame(
+        {
+            "學生ID": ["S1"] * 4,
+            "組別": ["A"] * 4,
+            "Bloom層級": [1, 2, 3, 4],
+            "對話ID": [1, 2, 3, 4],
+        }
+    )
+    work = seq.prepare(df, "學生ID", "組別", "Bloom層級", "對話ID")
+    reg = seq.regression_by_group(work)
+    assert reg.iloc[0]["斜率"] == 1.0
+    assert reg.iloc[0]["R²"] == 1.0
+    band = seq.regression_band(work, "A")
+    assert band is not None and abs(band["slope"] - 1.0) < 1e-9
+    # 信賴區帶 hi >= 迴歸線 >= lo
+    assert (band["hi"] >= band["y"]).all() and (band["y"] >= band["lo"]).all()
+
+
+def test_student_slopes():
+    df = pd.DataFrame(
+        {
+            "學生ID": ["S1"] * 4 + ["S2"] * 4,
+            "組別": ["A"] * 4 + ["B"] * 4,
+            "Bloom層級": [1, 2, 3, 4, 4, 3, 2, 1],  # S1 上升, S2 下降
+            "對話ID": [1, 2, 3, 4, 1, 2, 3, 4],
+        }
+    )
+    work = seq.prepare(df, "學生ID", "組別", "Bloom層級", "對話ID")
+    ss = seq.student_slopes(work)
+    s1 = ss[ss["學生"] == "S1"].iloc[0]["斜率"]
+    s2 = ss[ss["學生"] == "S2"].iloc[0]["斜率"]
+    assert s1 > 0 and s2 < 0
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in sorted(globals().items()):
