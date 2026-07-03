@@ -146,18 +146,28 @@ with tab_gseq:
         "算出**調整殘差 z**——|z|>1.96 表示該轉移顯著多於（↑）或少於（↓）隨機預期。"
         "這回答的是『哪些轉移是真正的模式，而非因某層級本來就常見』。詳見 docs/序列分析方法.md。"
     )
-    alpha = st.selectbox("顯著水準 α", [0.05, 0.01, 0.10], index=0)
-    only_sig = st.checkbox("只顯示達顯著的轉移", value=True)
+    g1, g2 = st.columns(2)
+    with g1:
+        alpha = st.selectbox("顯著水準 α", [0.05, 0.01, 0.10], index=0)
+    with g2:
+        view = st.radio(
+            "轉移圖顯示範圍",
+            ["只顯示顯著轉移", "全部（顯著標紅、其餘淡灰）"],
+            horizontal=True,
+        )
+    only_sig = view.startswith("只顯示")
     st.caption(
-        "下方網絡圖仿標準滯後序列分析工具：只畫達顯著的轉移，"
-        "🔴紅實線＝顯著偏多、⚪灰虛線＝顯著偏少，線上數字＝調整殘差 z。"
+        "事件轉移圖（仿標準滯後序列分析）：線上數字＝**調整後殘差 z**（|z|>1.96 為顯著）。"
+        "🔴紅實線＝顯著偏多、🟠橘虛線＝顯著偏少、⚪淡灰細線＝未達顯著。"
     )
     gseq_all = seq.gseq_all_groups(trans, groups, levels, alpha=alpha)
     for grp in groups:
         st.markdown(f"#### {grp}")
         gdf = gseq_all[gseq_all["組別"] == grp]
         st.graphviz_chart(
-            seq_charts.gseq_graph(gdf, levels, high_min=int(high_min)),
+            seq_charts.gseq_graph(
+                gdf, levels, high_min=int(high_min), only_significant=only_sig
+            ),
             width="stretch",
         )
         shown = gdf[gdf["顯著"] != ""] if only_sig else gdf

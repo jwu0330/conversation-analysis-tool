@@ -251,14 +251,19 @@ def gseq_graph(
     gseq_group: pd.DataFrame,
     levels: list[int],
     high_min: int = 4,
+    only_significant: bool = True,
+    z_crit: float = 1.96,
 ) -> graphviz.Digraph:
-    """GSEQ 顯著轉移網絡圖（六邊形固定位置，只畫達顯著的轉移、線上標 z 值）。
+    """GSEQ 事件轉移圖（六邊形固定位置，線上標調整後殘差 z）。
 
     仿標準滯後序列分析工具的「事件轉移圖」：
     - 節點：Bloom Level 圓圈（藍=低階、紅=高階），位置固定。
-    - 只畫 |z|>1.96 的轉移；紅實線=顯著偏多、灰虛線=顯著偏少；線粗與標籤=調整殘差 z。
+    - only_significant=True ：只畫 |z|>z_crit 的顯著轉移。
+    - only_significant=False：畫出所有實際發生的轉移；顯著者上色標 z、未達顯著者淡灰細線。
+    - 配色：🔴紅實線=顯著偏多、🟠橘虛線=顯著偏少、⚪淡灰細線=未達顯著。
     """
     low_c, high_c = "#5DADE2", "#E74C3C"
+    up_c, down_c, ns_c = "#C0392B", "#E67E22", "#BDC3C7"
     g = graphviz.Digraph(engine="neato")
     g.attr(bgcolor="white", outputorder="edgesfirst", overlap="false")
     g.attr("node", shape="circle", style="filled", fontcolor="white",
@@ -270,19 +275,25 @@ def gseq_graph(
         fill = high_c if lv >= high_min else low_c
         g.node(f"L{lv}", label=f"L{lv}", pos=f"{x},{y}!", fillcolor=fill)
 
-    sig = gseq_group[gseq_group["顯著"] != ""]
-    if sig.empty:
-        g.attr(label="（此組無達顯著的轉移）", labelloc="t", fontsize="14")
+    df = gseq_group.copy()
+    sig_rows = df[df["顯著"] != ""]
+    edges = sig_rows if only_significant else df[df["觀察次數"] > 0]
+    if edges.empty:
+        g.attr(label="（無可繪的轉移）", labelloc="t", fontsize="14")
         return g
 
-    max_z = max(float(abs(z)) for z in sig["調整殘差z"]) or 1.0
-    for r in sig.itertuples():
-        z = float(r.調整殘差z)
-        width = 1.0 + 5.0 * (abs(z) / max_z)
-        if z > 0:
-            color, style = "#C0392B", "solid"   # 顯著偏多：紅實線
+    zvals = [abs(float(z)) for z in sig_rows["調整殘差z"] if z is not None]
+    max_z = max(zvals) if zvals else 1.0
+
+    for r in edges.itertuples():
+        z = r.調整殘差z
+        if r.顯著 != "" and z is not None:
+            zf = float(z)
+            width = 1.5 + 4.5 * (abs(zf) / max_z)
+            color, style = (up_c, "solid") if zf > 0 else (down_c, "dashed")
+            g.edge(r.Source, r.Target, label=f" {zf:.2f}", penwidth=f"{width:.2f}",
+                   color=color, fontcolor=color, style=style, fontsize="11")
         else:
-            color, style = "#95A5A6", "dashed"   # 顯著偏少：灰虛線
-        g.edge(r.Source, r.Target, label=f" {z:.2f}", penwidth=f"{width:.2f}",
-               color=color, fontcolor=color, style=style, fontsize="11")
+            # 未達顯著：淡灰細線、不標數值，避免干擾
+            g.edge(r.Source, r.Target, penwidth="0.7", color=ns_c, arrowsize="0.6")
     return g
