@@ -245,3 +245,44 @@ def student_slope_box(slopes: pd.DataFrame, title: str = "") -> go.Figure:
                   annotation_text="斜率=0（無升降趨勢）")
     fig.update_yaxes(title="個別學生迴歸斜率")
     return fig
+
+
+def gseq_graph(
+    gseq_group: pd.DataFrame,
+    levels: list[int],
+    high_min: int = 4,
+) -> graphviz.Digraph:
+    """GSEQ 顯著轉移網絡圖（六邊形固定位置，只畫達顯著的轉移、線上標 z 值）。
+
+    仿標準滯後序列分析工具的「事件轉移圖」：
+    - 節點：Bloom Level 圓圈（藍=低階、紅=高階），位置固定。
+    - 只畫 |z|>1.96 的轉移；紅實線=顯著偏多、灰虛線=顯著偏少；線粗與標籤=調整殘差 z。
+    """
+    low_c, high_c = "#5DADE2", "#E74C3C"
+    g = graphviz.Digraph(engine="neato")
+    g.attr(bgcolor="white", outputorder="edgesfirst", overlap="false")
+    g.attr("node", shape="circle", style="filled", fontcolor="white",
+           fontsize="14", width="0.7", fixedsize="true", penwidth="0")
+
+    positions = _ring_positions(levels)
+    for lv in sorted(levels):
+        x, y = positions[lv]
+        fill = high_c if lv >= high_min else low_c
+        g.node(f"L{lv}", label=f"L{lv}", pos=f"{x},{y}!", fillcolor=fill)
+
+    sig = gseq_group[gseq_group["顯著"] != ""]
+    if sig.empty:
+        g.attr(label="（此組無達顯著的轉移）", labelloc="t", fontsize="14")
+        return g
+
+    max_z = max(float(abs(z)) for z in sig["調整殘差z"]) or 1.0
+    for r in sig.itertuples():
+        z = float(r.調整殘差z)
+        width = 1.0 + 5.0 * (abs(z) / max_z)
+        if z > 0:
+            color, style = "#C0392B", "solid"   # 顯著偏多：紅實線
+        else:
+            color, style = "#95A5A6", "dashed"   # 顯著偏少：灰虛線
+        g.edge(r.Source, r.Target, label=f" {z:.2f}", penwidth=f"{width:.2f}",
+               color=color, fontcolor=color, style=style, fontsize="11")
+    return g

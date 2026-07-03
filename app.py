@@ -7,16 +7,9 @@
 """
 from __future__ import annotations
 
-import os
-
-import pandas as pd
 import streamlit as st
 
-from src import state
-
-SAMPLE_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "sample_data", "conversation_sample.xlsx"
-)
+from src import datasets, state
 
 st.set_page_config(
     page_title="對話紀錄統計分析系統",
@@ -56,18 +49,23 @@ if state.has_data():
     )
     st.info("請從左側選單前往各分析分頁。")
 else:
-    st.info("👈 尚未載入資料。可從左側「📤 資料上傳」上傳檔案，或直接用內建範例試玩：")
-    if st.button("🎯 一鍵載入內建範例資料（320 筆模擬對話紀錄）", type="primary"):
-        if os.path.exists(SAMPLE_PATH):
-            demo_df = pd.read_excel(SAMPLE_PATH, engine="openpyxl")
+    st.info("👈 尚未載入資料。可從左側「📤 資料上傳」上傳檔案，或直接載入內建資料：")
+    builtin = datasets.discover_datasets()
+    if builtin:
+        labels = [d["label"] for d in builtin]
+        choice = st.selectbox("選擇內建資料", labels)
+        if st.button("🎯 載入所選內建資料", type="primary"):
+            picked = builtin[labels.index(choice)]
+            demo_df = datasets.load_dataset(picked["path"])
             state.set_dataframe(
                 demo_df,
-                meta={"filename": "conversation_sample.xlsx（內建範例）", "sheet": "Sheet1"},
+                meta={"filename": f"{picked['filename']}（內建）", "sheet": "-"},
             )
             state.clear_export_tables()
             st.rerun()
-        else:
-            st.error("找不到範例檔，請先執行：python sample_data/generate_sample.py")
+    else:
+        st.warning("找不到內建資料，請把檔案放進 `data/`，或執行 "
+                   "`python sample_data/generate_sample.py`。")
 
 with st.sidebar:
     st.header("關於")

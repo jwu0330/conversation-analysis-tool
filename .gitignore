@@ -30,3 +30,8 @@ tmp/
 
 # 匯出結果
 exports/
+
+# 真實研究資料（隱私）：data/ 內容不上傳公開 repo，只保留說明檔
+data/*
+!data/README.md
+!data/.gitkeep

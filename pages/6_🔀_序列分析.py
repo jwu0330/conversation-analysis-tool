@@ -148,10 +148,18 @@ with tab_gseq:
     )
     alpha = st.selectbox("顯著水準 α", [0.05, 0.01, 0.10], index=0)
     only_sig = st.checkbox("只顯示達顯著的轉移", value=True)
+    st.caption(
+        "下方網絡圖仿標準滯後序列分析工具：只畫達顯著的轉移，"
+        "🔴紅實線＝顯著偏多、⚪灰虛線＝顯著偏少，線上數字＝調整殘差 z。"
+    )
     gseq_all = seq.gseq_all_groups(trans, groups, levels, alpha=alpha)
     for grp in groups:
         st.markdown(f"#### {grp}")
         gdf = gseq_all[gseq_all["組別"] == grp]
+        st.graphviz_chart(
+            seq_charts.gseq_graph(gdf, levels, high_min=int(high_min)),
+            width="stretch",
+        )
         shown = gdf[gdf["顯著"] != ""] if only_sig else gdf
         shown = shown.sort_values("調整殘差z", ascending=False)
         if shown.empty:

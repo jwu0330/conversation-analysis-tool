@@ -9,19 +9,13 @@ import os
 import pandas as pd
 import streamlit as st
 
-from src import state
+from src import datasets, state
 from src.core import column_types, data_loader, data_quality
 
 st.set_page_config(page_title="資料上傳", page_icon="📤", layout="wide")
 st.title("📤 資料上傳")
 
-SAMPLE_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "sample_data",
-    "conversation_sample.xlsx",
-)
-
-# --- 上傳區 + 範例資料按鈕 ---
+# --- 上傳區 + 內建資料選單 ---
 c_up, c_demo = st.columns([3, 2])
 with c_up:
     uploaded = st.file_uploader(
@@ -30,21 +24,27 @@ with c_up:
     )
 with c_demo:
     st.write("")
-    st.write("沒有資料？先用內建範例試玩：")
-    if st.button("🎯 載入內建範例資料（320 筆模擬對話紀錄）", type="primary"):
-        if os.path.exists(SAMPLE_PATH):
-            demo_df = pd.read_excel(SAMPLE_PATH, engine="openpyxl")
-            state.set_dataframe(
-                demo_df,
-                meta={"filename": "conversation_sample.xlsx（內建範例）", "sheet": "Sheet1"},
-            )
-            state.clear_export_tables()
-            st.success("已載入範例資料！")
-            st.rerun()
-        else:
-            st.error(
-                "找不到範例檔，請先執行：python sample_data/generate_sample.py"
-            )
+    st.write("或直接載入**內建資料**（放在 `sample_data/` 或 `data/` 的檔案）：")
+    builtin = datasets.discover_datasets()
+    if builtin:
+        labels = [d["label"] for d in builtin]
+        choice = st.selectbox("內建資料集", labels, label_visibility="collapsed")
+        if st.button("🎯 載入所選內建資料", type="primary"):
+            picked = builtin[labels.index(choice)]
+            try:
+                demo_df = datasets.load_dataset(picked["path"])
+                state.set_dataframe(
+                    demo_df,
+                    meta={"filename": f"{picked['filename']}（內建）", "sheet": "-"},
+                )
+                state.clear_export_tables()
+                st.success(f"已載入：{picked['filename']}")
+                st.rerun()
+            except Exception as err:  # noqa: BLE001
+                st.error(f"載入失敗：{err}")
+    else:
+        st.info("目前沒有內建資料。可把檔案放進 `data/` 資料夾，或執行 "
+                "`python sample_data/generate_sample.py` 產生範例。")
 
 st.divider()
 
