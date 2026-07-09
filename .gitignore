@@ -30,6 +30,12 @@ tmp/
 
 # 匯出結果
 exports/
+序列分析結果_*.xlsx
+量化分析結果_*.xlsx
+
+# 暫存 / 執行紀錄
+scratch_streamlit.log
+*.log
 
 # 真實研究資料（隱私）：data/ 內容不上傳公開 repo，只保留說明檔
 data/*
