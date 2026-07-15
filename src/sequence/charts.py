@@ -55,7 +55,7 @@ def transition_sankey(trans_group: pd.DataFrame, title: str = "") -> go.Figure:
     return fig
 
 
-def _ring_positions(levels: list[int], radius: float = 2.4) -> dict[int, tuple[float, float]]:
+def _ring_positions(levels: list[int], radius: float = 1.6) -> dict[int, tuple[float, float]]:
     """把各 Level 均勻釘在圓周上（6 個即成六邊形），由高到低順時針排列。"""
     ordered = sorted(levels)
     n = max(len(ordered), 1)
@@ -83,10 +83,11 @@ def transition_graph(
     low_c, high_c = "#5DADE2", "#E74C3C"
 
     g = graphviz.Digraph(engine="neato")
-    g.attr(bgcolor="white", outputorder="edgesfirst", overlap="false")
+    g.attr(bgcolor="white", outputorder="edgesfirst", overlap="false",
+           size="4,4", ratio="compress", margin="0.1")
     g.attr(
         "node", shape="circle", style="filled", fontcolor="white",
-        fontsize="14", width="0.7", fixedsize="true", penwidth="0",
+        fontsize="11", width="0.5", fixedsize="true", penwidth="0",
     )
 
     positions = _ring_positions(levels)
@@ -98,7 +99,7 @@ def transition_graph(
     if not trans_group.empty:
         max_count = max(int(trans_group["次數"].max()), 1)
         for r in trans_group.itertuples():
-            width = 1.0 + 5.0 * (r.次數 / max_count)
+            width = 0.8 + 3.0 * (r.次數 / max_count)
             if r.Target > r.Source:
                 color = up_c
             elif r.Target < r.Source:
@@ -107,7 +108,7 @@ def transition_graph(
                 color = loop_c
             g.edge(
                 f"L{int(r.Source)}", f"L{int(r.Target)}", label=f" {r.次數}",
-                penwidth=f"{width:.2f}", color=color, fontcolor=color, fontsize="12",
+                penwidth=f"{width:.2f}", color=color, fontcolor=color, fontsize="10",
             )
     return g
 
@@ -265,9 +266,10 @@ def gseq_graph(
     low_c, high_c = "#5DADE2", "#E74C3C"
     up_c, down_c, ns_c = "#C0392B", "#E67E22", "#BDC3C7"
     g = graphviz.Digraph(engine="neato")
-    g.attr(bgcolor="white", outputorder="edgesfirst", overlap="false")
+    g.attr(bgcolor="white", outputorder="edgesfirst", overlap="false",
+           size="4,4", ratio="compress", margin="0.1")
     g.attr("node", shape="circle", style="filled", fontcolor="white",
-           fontsize="14", width="0.7", fixedsize="true", penwidth="0")
+           fontsize="11", width="0.5", fixedsize="true", penwidth="0")
 
     positions = _ring_positions(levels)
     for lv in sorted(levels):
@@ -279,7 +281,7 @@ def gseq_graph(
     sig_rows = df[df["顯著"] != ""]
     edges = sig_rows if only_significant else df[df["觀察次數"] > 0]
     if edges.empty:
-        g.attr(label="（無可繪的轉移）", labelloc="t", fontsize="14")
+        g.attr(label="（無可繪的轉移）", labelloc="t", fontsize="12")
         return g
 
     zvals = [abs(float(z)) for z in sig_rows["調整殘差z"] if z is not None]
@@ -289,10 +291,10 @@ def gseq_graph(
         z = r.調整殘差z
         if r.顯著 != "" and z is not None:
             zf = float(z)
-            width = 1.5 + 4.5 * (abs(zf) / max_z)
+            width = 1.0 + 2.8 * (abs(zf) / max_z)
             color, style = (up_c, "solid") if zf > 0 else (down_c, "dashed")
             g.edge(r.Source, r.Target, label=f" {zf:.2f}", penwidth=f"{width:.2f}",
-                   color=color, fontcolor=color, style=style, fontsize="11")
+                   color=color, fontcolor=color, style=style, fontsize="10")
         else:
             # 未達顯著：淡灰細線、不標數值，避免干擾
             g.edge(r.Source, r.Target, penwidth="0.7", color=ns_c, arrowsize="0.6")

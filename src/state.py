@@ -28,9 +28,37 @@ def has_data() -> bool:
     return df is not None and not df.empty
 
 
+def autoload_default() -> bool:
+    """尚未載入資料時，自動載入預設的「實際資料」（免手動上傳）。回傳最終是否有資料。
+
+    讓網頁一開／重新整理（Streamlit 會重置 session）都能直接看到現有數據。
+    """
+    if has_data():
+        return True
+    import os
+
+    from src import datasets  # 延遲匯入，避免與 datasets 形成循環相依
+    path = datasets.default_dataset_path()
+    if not path:
+        return False
+    try:
+        df = datasets.load_dataset(path)
+    except Exception:  # noqa: BLE001
+        return False
+    if df is None or df.empty:
+        return False
+    set_dataframe(
+        df, meta={"filename": f"{os.path.basename(path)}（預設實際資料）", "sheet": "-"}
+    )
+    return True
+
+
 def require_data() -> pd.DataFrame:
-    """分頁開頭呼叫：沒有資料就提示並停止該頁執行。"""
+    """分頁開頭呼叫：沒有資料就自動載入預設實際資料；仍無才提示並停止該頁執行。"""
     df = get_dataframe()
+    if df is None or df.empty:
+        autoload_default()
+        df = get_dataframe()
     if df is None or df.empty:
         st.warning("尚未載入資料，請先回「首頁」上傳 Excel／CSV 或載入內建資料。")
         st.stop()

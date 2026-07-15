@@ -18,6 +18,10 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUILTIN_DIRS = ["sample_data", os.path.join("data", "對話分析")]
 _CN_NUM = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
 
+# 預設「實際資料」：網頁一開／重新整理就自動載入這份，免手動上傳。
+# 找不到這個檔名時，退而載入掃描到的第一個內建資料。
+DEFAULT_DATASET_FILENAME = "Bloom_序列分析_精簡.xlsx"
+
 
 def discover_datasets() -> list[dict]:
     """回傳內建資料清單：[{label, path, filename}]。
@@ -63,3 +67,17 @@ def discover_datasets() -> list[dict]:
 def load_dataset(path: str) -> pd.DataFrame:
     """讀取內建資料檔為 DataFrame（Excel 取第一個工作表；CSV 自動辨識編碼）。"""
     return data_loader.load_any(path, os.path.basename(path))
+
+
+def default_dataset_path() -> str | None:
+    """回傳預設實際資料的完整路徑。
+
+    優先找 DEFAULT_DATASET_FILENAME；找不到就用掃描到的第一個內建資料；都沒有回 None。
+    """
+    found = discover_datasets()
+    if not found:
+        return None
+    for d in found:
+        if d["filename"] == DEFAULT_DATASET_FILENAME:
+            return d["path"]
+    return found[0]["path"]

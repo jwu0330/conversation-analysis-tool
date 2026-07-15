@@ -67,77 +67,73 @@ with tab_seq:
                  width="stretch", hide_index=True)
     state.register_export_table("序列_個人Bloom序列", seqs[["學生", "組別", "提問數", "序列字串"]])
 
-# ══ ② 轉移分析（轉移表 → 圖 → GSEQ 顯著偏多）════════════
+# ══ ② 轉移分析（每塊可收合，圖固定小尺寸，方便單頁截圖）════
 with tab_trans:
-    st.markdown("#### 轉移表")
-    st.caption("Source＝前一題 Bloom，Target＝下一題，次數＝該轉移出現次數。")
-    st.dataframe(trans, width="stretch", hide_index=True)
-    state.register_export_table("序列_Bloom轉移表", trans)
-
-    st.markdown("#### 轉移圖")
+    # 共用控制列（一行放完，省版面）
+    cc1, cc2, cc3 = st.columns([1, 1, 1.4])
+    normalize = cc1.radio("矩陣數值", ["次數", "列機率(%)"], horizontal=True) == "列機率(%)"
+    alpha = cc2.selectbox("GSEQ 顯著水準 α", [0.05, 0.01, 0.10], index=0)
+    show_less = cc3.checkbox("GSEQ 也顯示「顯著偏少(↓)」（不建議下結論）", value=False)
     st.caption(
-        "每組三種呈現：① 轉移流向圖(Sankey，前題→後題) ② 圈箭頭網絡圖（Level 釘成六邊形，"
-        "綠=往高階、橘=往低階、灰=同層）③ 轉移矩陣熱圖。"
+        "每組獨立收合；組內用小分頁切換四種視角，圖為固定小尺寸，方便單頁截圖。"
+        "GSEQ 調整殘差 z：|z|>1.96 為顯著偏多(↑)＝真實模式；偏少(↓)一般不下結論；期望<5 標『可信度低』。"
     )
-    normalize = st.radio("矩陣數值", ["次數", "列機率(%)"], horizontal=True) == "列機率(%)"
-    for grp in groups:
-        st.markdown(f"**{grp}**")
-        g_trans = trans_shown[trans_shown["組別"] == grp]
-        # ① Sankey 轉移流向圖（Plotly，一定會顯示）
-        st.plotly_chart(
-            seq_charts.transition_sankey(g_trans, title=f"{grp}：Bloom 轉移流向"),
-            width="stretch",
-        )
-        colA, colB = st.columns(2)
-        with colA:
-            st.caption("圈箭頭轉移網絡圖")
-            st.graphviz_chart(
-                seq_charts.transition_graph(g_trans, levels, high_min=int(high_min)),
-                width="stretch",
-            )
-        with colB:
-            st.caption("轉移矩陣熱圖")
-            matrix = seq.transition_matrix(trans, grp, levels, normalize=normalize)
-            st.plotly_chart(
-                seq_charts.transition_heatmap(matrix, title=f"{grp}：轉移矩陣"),
-                width="stretch",
-            )
-        state.register_export_table(
-            f"序列_轉移矩陣_{grp}", seq.transition_matrix(trans, grp, levels, normalize=normalize)
-        )
-
-    st.divider()
-    st.markdown("#### GSEQ 顯著轉移（滯後序列分析）")
-    st.caption(
-        "調整殘差 z：|z|>1.96 表示該轉移**顯著偏多(↑)**於隨機預期 —— 這才是研究要找的「真實模式」。"
-        "「顯著偏少(↓)」一般不拿來下結論，預設收起；期望次數<5 的格子 z 不可靠，標為『可信度低』。"
-    )
-    g1, g2 = st.columns(2)
-    alpha = g1.selectbox("顯著水準 α", [0.05, 0.01, 0.10], index=0)
-    show_less = g2.checkbox("同時顯示「顯著偏少(↓)」（不建議下結論）", value=False)
 
     gseq_all = seq.gseq_all_groups(trans, groups, levels, alpha=alpha)
     wanted = ["↑ 顯著偏多"] + (["↓ 顯著偏少"] if show_less else [])
-    for grp in groups:
-        st.markdown(f"**{grp}**")
-        gdf = gseq_all[gseq_all["組別"] == grp].copy()
-        shown = gdf[gdf["顯著"].isin(wanted)].copy()
-        # 顯著轉移圖：預設只畫「顯著偏多」；沒勾偏少就把偏少當未顯著（不畫紅橘線）
-        gdf_graph = gdf.copy()
-        if not show_less:
-            gdf_graph.loc[gdf_graph["顯著"] == "↓ 顯著偏少", "顯著"] = ""
-        st.graphviz_chart(
-            seq_charts.gseq_graph(gdf_graph, levels, high_min=int(high_min), only_significant=True),
-            width="stretch",
-        )
-        if shown.empty:
-            st.info("（此組沒有達顯著偏多的轉移）" if not show_less else "（此組沒有達顯著的轉移）")
-        else:
-            shown = shown.sort_values("調整殘差z", ascending=False)
-            st.dataframe(shown, width="stretch", hide_index=True)
-        state.register_export_table(f"序列_GSEQ統計_{grp}", gdf)
 
-    with st.expander("高低階轉移（低→高／高→高／高→低／低→低）"):
+    # 轉移表（收合）
+    with st.expander("📋 轉移表（Source→Target 次數，全部組別）", expanded=False):
+        st.dataframe(trans, width="stretch", hide_index=True)
+        state.register_export_table("序列_Bloom轉移表", trans)
+
+    # 每組一個收合區，組內用小分頁切換視角
+    for grp in groups:
+        g_trans = trans_shown[trans_shown["組別"] == grp]
+        with st.expander(f"🔹 {grp}：轉移圖與 GSEQ", expanded=False):
+            v_sankey, v_net, v_heat, v_gseq = st.tabs(
+                ["Sankey 流向", "圈箭頭圖", "矩陣熱圖", "GSEQ 顯著轉移"]
+            )
+            with v_sankey:
+                st.plotly_chart(
+                    seq_charts.transition_sankey(g_trans, title=f"{grp}：Bloom 轉移流向"),
+                    width="stretch",
+                )
+            with v_net:
+                st.caption("Level 釘成六邊形；綠=往高階、橘=往低階、灰=同層。")
+                st.graphviz_chart(
+                    seq_charts.transition_graph(g_trans, levels, high_min=int(high_min)),
+                    width="content",
+                )
+            with v_heat:
+                matrix = seq.transition_matrix(trans, grp, levels, normalize=normalize)
+                st.plotly_chart(
+                    seq_charts.transition_heatmap(matrix, title=f"{grp}：轉移矩陣"),
+                    width="stretch",
+                )
+                state.register_export_table(
+                    f"序列_轉移矩陣_{grp}",
+                    seq.transition_matrix(trans, grp, levels, normalize=normalize),
+                )
+            with v_gseq:
+                gdf = gseq_all[gseq_all["組別"] == grp].copy()
+                gdf_graph = gdf.copy()
+                if not show_less:  # 沒勾偏少就把偏少當未顯著（圖只留顯著偏多）
+                    gdf_graph.loc[gdf_graph["顯著"] == "↓ 顯著偏少", "顯著"] = ""
+                st.graphviz_chart(
+                    seq_charts.gseq_graph(gdf_graph, levels, high_min=int(high_min),
+                                          only_significant=True),
+                    width="content",
+                )
+                shown = gdf[gdf["顯著"].isin(wanted)].sort_values("調整殘差z", ascending=False)
+                if shown.empty:
+                    st.info("（此組沒有達顯著偏多的轉移）")
+                else:
+                    st.dataframe(shown, width="stretch", hide_index=True)
+                state.register_export_table(f"序列_GSEQ統計_{grp}", gdf)
+
+    # 高低階轉移（收合）
+    with st.expander("📊 高低階轉移（低→高／高→高／高→低／低→低）", expanded=False):
         highlow = seq.high_low_transitions(work, high_min=int(high_min))
         st.dataframe(highlow, width="stretch", hide_index=True)
         st.plotly_chart(

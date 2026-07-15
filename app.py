@@ -37,7 +37,8 @@ with tab_upload:
     c_up, c_demo = st.columns([3, 2])
     with c_up:
         uploaded = st.file_uploader(
-            "上傳對話紀錄檔（支援 .xlsx / .xls / .csv）",
+            "（可選）改用其他檔案時才上傳（支援 .xlsx / .xls / .csv）；"
+            "不上傳就自動使用預設實際資料。",
             type=["xlsx", "xls", "xlsm", "csv"],
         )
     with c_demo:
@@ -89,8 +90,13 @@ with tab_upload:
         )
         state.clear_export_tables()
 
+    # 沒有資料時自動載入「預設實際資料」：一開網頁／重新整理就直接看到現有數據，
+    # 上傳只在要換別的檔案時才需要。
     if not state.has_data():
-        st.info("👆 請上傳檔案，或點「🎯 載入所選內建資料」馬上開始。")
+        state.autoload_default()
+
+    if not state.has_data():
+        st.info("👆 找不到預設資料。請上傳檔案，或點「🎯 載入所選內建資料」馬上開始。")
     else:
         df = state.get_dataframe()
         meta = state.get_meta()
