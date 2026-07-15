@@ -62,8 +62,8 @@ def test_transition_matrix_normalize():
     t = seq.transitions(work)
     levels = seq.all_levels(work)
     mat = seq.transition_matrix(t, "對照組", levels, normalize=True)
-    # 對照組 source=L2 有兩條 (->2, ->3)，列機率合計應為 100
-    assert abs(mat.loc["L2"].sum() - 100) < 0.01
+    # 對照組 source=S2 有兩條 (->2, ->3)，列機率合計應為 100
+    assert abs(mat.loc[seq.level_label(2)].sum() - 100) < 0.01
 
 
 def test_high_low():

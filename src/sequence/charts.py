@@ -9,6 +9,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
+from src.sequence.analysis import level_label
+
 _TEMPLATE = "plotly_white"
 
 # 節點配色：低階偏藍、高階偏紅，方便肉眼區分認知層次
@@ -33,11 +35,11 @@ def transition_sankey(trans_group: pd.DataFrame, title: str = "") -> go.Figure:
     labels, colors, node_index = [], [], {}
     for lv in src_levels:
         node_index[("s", lv)] = len(labels)
-        labels.append(f"L{lv}（前題）")
+        labels.append(f"{level_label(int(lv))}（前題）")
         colors.append(_LEVEL_COLOR.get(int(lv), "#7F8C8D"))
     for lv in tgt_levels:
         node_index[("t", lv)] = len(labels)
-        labels.append(f"L{lv}（後題）")
+        labels.append(f"{level_label(int(lv))}（後題）")
         colors.append(_LEVEL_COLOR.get(int(lv), "#7F8C8D"))
 
     fig = go.Figure(
@@ -84,17 +86,17 @@ def transition_graph(
 
     g = graphviz.Digraph(engine="neato")
     g.attr(bgcolor="white", outputorder="edgesfirst", overlap="false",
-           size="4,4", ratio="compress", margin="0.1")
+           sep="+8", margin="0.2")
     g.attr(
         "node", shape="circle", style="filled", fontcolor="white",
-        fontsize="11", width="0.5", fixedsize="true", penwidth="0",
+        fontsize="10", width="0.62", fixedsize="true", penwidth="0",
     )
 
     positions = _ring_positions(levels)
     for lv in sorted(levels):
         x, y = positions[lv]
         fill = high_c if lv >= high_min else low_c
-        g.node(f"L{lv}", label=f"L{lv}", pos=f"{x},{y}!", fillcolor=fill)
+        g.node(level_label(lv), label=level_label(lv), pos=f"{x},{y}!", fillcolor=fill)
 
     if not trans_group.empty:
         max_count = max(int(trans_group["次數"].max()), 1)
@@ -107,7 +109,7 @@ def transition_graph(
             else:
                 color = loop_c
             g.edge(
-                f"L{int(r.Source)}", f"L{int(r.Target)}", label=f" {r.次數}",
+                level_label(int(r.Source)), level_label(int(r.Target)), label=f" {r.次數}",
                 penwidth=f"{width:.2f}", color=color, fontcolor=color, fontsize="10",
             )
     return g
@@ -142,14 +144,14 @@ def highlow_bar(highlow: pd.DataFrame, title: str = "") -> go.Figure:
 
 
 def position_line(profile: pd.DataFrame, title: str = "") -> go.Figure:
-    """題序流動圖：各組平均 Bloom Level 隨題序變化。"""
+    """題序流動圖：各組平均 SOLO Level 隨題序變化。"""
     if profile.empty:
         return _empty_fig(title)
     fig = px.line(
-        profile, x="題序", y="平均Bloom", color="組別", markers=True,
+        profile, x="題序", y="平均SOLO", color="組別", markers=True,
         title=title, template=_TEMPLATE,
     )
-    fig.update_yaxes(title="平均 Bloom Level")
+    fig.update_yaxes(title="平均 SOLO Level")
     fig.update_xaxes(dtick=1)
     return fig
 
@@ -210,7 +212,7 @@ def trend_figure(
             x=sub["題序"] + jitter, y=sub["Bloom"], mode="markers",
             name=f"{g}（提問）", legendgroup=g,
             marker=dict(color=_hex_to_rgba(c, 0.45), size=6),
-            hovertemplate="題序%{x:.0f}<br>Bloom L%{y}<extra></extra>",
+            hovertemplate="題序%{x:.0f}<br>SOLO L%{y}<extra></extra>",
         ))
         band = bands.get(g)
         if band is not None:
@@ -229,7 +231,7 @@ def trend_figure(
             ))
 
     fig.update_layout(title=title, template=_TEMPLATE, xaxis_title="題序（第幾題）",
-                      yaxis_title="Bloom Level", hovermode="closest")
+                      yaxis_title="SOLO Level", hovermode="closest")
     fig.update_yaxes(dtick=1, range=[level_min - 0.6, level_max + 0.6])
     fig.update_xaxes(dtick=1)
     return fig
@@ -267,15 +269,15 @@ def gseq_graph(
     up_c, down_c, ns_c = "#C0392B", "#E67E22", "#BDC3C7"
     g = graphviz.Digraph(engine="neato")
     g.attr(bgcolor="white", outputorder="edgesfirst", overlap="false",
-           size="4,4", ratio="compress", margin="0.1")
+           sep="+8", margin="0.2")
     g.attr("node", shape="circle", style="filled", fontcolor="white",
-           fontsize="11", width="0.5", fixedsize="true", penwidth="0")
+           fontsize="10", width="0.62", fixedsize="true", penwidth="0")
 
     positions = _ring_positions(levels)
     for lv in sorted(levels):
         x, y = positions[lv]
         fill = high_c if lv >= high_min else low_c
-        g.node(f"L{lv}", label=f"L{lv}", pos=f"{x},{y}!", fillcolor=fill)
+        g.node(level_label(lv), label=level_label(lv), pos=f"{x},{y}!", fillcolor=fill)
 
     df = gseq_group.copy()
     sig_rows = df[df["顯著"] != ""]

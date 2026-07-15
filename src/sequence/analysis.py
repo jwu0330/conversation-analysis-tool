@@ -14,6 +14,20 @@ from scipy import stats
 # 標準欄位名（模組內部統一使用）
 STUDENT, GROUP, BLOOM, ORDER = "StudentID", "Group", "Bloom", "Order"
 
+# SOLO 顯示標籤：層級數字(=SOLO_Score) → 字母，方便對照「第幾層＋結構代號」。
+# P=前結構、U=單點、M=多點、R=關聯、EA=延伸抽象。
+_SOLO_LETTER = {0: "P", 1: "U", 2: "M", 3: "R", 4: "EA"}
+
+
+def level_label(v: int) -> str:
+    """把層級數字轉成顯示標籤，例如 3 → 'S3·R'（第 3 層、關聯結構）。
+
+    未知層級（超出 0–4）退回 'S{v}'，計算不受影響、只影響畫面顯示。
+    """
+    v = int(v)
+    letter = _SOLO_LETTER.get(v)
+    return f"S{v}·{letter}" if letter else f"S{v}"
+
 
 def parse_bloom_level(value) -> int | None:
     """把各種寫法的 Bloom 標記轉成整數 Level。
@@ -82,7 +96,7 @@ def build_sequences(work: pd.DataFrame) -> pd.DataFrame:
         .apply(list)
         .reset_index(name="序列")
     )
-    seqs["序列字串"] = seqs["序列"].map(lambda xs: " → ".join(f"L{v}" for v in xs))
+    seqs["序列字串"] = seqs["序列"].map(lambda xs: " → ".join(level_label(v) for v in xs))
     seqs["提問數"] = seqs["序列"].map(len)
     return seqs.rename(columns={STUDENT: "學生", GROUP: "組別"})
 
@@ -115,10 +129,10 @@ def transition_matrix(
 ) -> pd.DataFrame:
     """把某組的轉移表攤成 Source×Target 方陣（次數或列機率）。"""
     sub = trans[trans["組別"] == group]
-    idx = [f"L{v}" for v in levels]
+    idx = [level_label(v) for v in levels]
     mat = pd.DataFrame(0.0, index=idx, columns=idx)
     for _, r in sub.iterrows():
-        mat.loc[f"L{int(r['Source'])}", f"L{int(r['Target'])}"] = r["次數"]
+        mat.loc[level_label(int(r['Source'])), level_label(int(r['Target']))] = r["次數"]
     if normalize:
         row_sum = mat.sum(axis=1).replace(0, pd.NA)
         mat = (mat.div(row_sum, axis=0) * 100).round(1).fillna(0.0)
@@ -152,11 +166,11 @@ def position_profile(work: pd.DataFrame) -> pd.DataFrame:
     w["題序"] = w.groupby([STUDENT], sort=False).cumcount() + 1
     prof = (
         w.groupby([GROUP, "題序"])[BLOOM]
-        .agg(平均Bloom="mean", 人次="count")
+        .agg(平均SOLO="mean", 人次="count")
         .reset_index()
         .rename(columns={GROUP: "組別"})
     )
-    prof["平均Bloom"] = prof["平均Bloom"].round(2)
+    prof["平均SOLO"] = prof["平均SOLO"].round(2)
     return prof
 
 

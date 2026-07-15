@@ -36,7 +36,7 @@ def _trans_2x2() -> pd.DataFrame:
 
 def test_gseq_formula_by_hand():
     g = seq.gseq_stats(_trans_2x2(), "G", [1, 2])
-    cell = g[(g["Source"] == "L1") & (g["Target"] == "L1")].iloc[0]
+    cell = g[(g["Source"] == seq.level_label(1)) & (g["Target"] == seq.level_label(1))].iloc[0]
     # N=10, R1=4, C1=3 → E=1.2；P=1/4=0.25
     assert cell["觀察次數"] == 1
     assert abs(cell["期望次數"] - 1.2) < 1e-9
@@ -57,7 +57,7 @@ def test_gseq_significance_direction():
         ]
     )
     g = seq.gseq_stats(trans, "G", [1, 2])
-    up = g[(g["Source"] == "L1") & (g["Target"] == "L2")].iloc[0]
+    up = g[(g["Source"] == seq.level_label(1)) & (g["Target"] == seq.level_label(2))].iloc[0]
     assert up["調整殘差z"] > 1.96
     assert up["顯著"] == "↑ 顯著偏多"
 

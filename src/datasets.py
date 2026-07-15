@@ -20,7 +20,8 @@ _CN_NUM = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
 
 # 預設「實際資料」：網頁一開／重新整理就自動載入這份，免手動上傳。
 # 找不到這個檔名時，退而載入掃描到的第一個內建資料。
-DEFAULT_DATASET_FILENAME = "Bloom_序列分析_精簡.xlsx"
+# 目前全面改用 SOLO（層級採 SOLO_Score 0–4：P=0,U=1,M=2,R=3,EA=4）。
+DEFAULT_DATASET_FILENAME = "SOLO_序列分析_精簡.xlsx"
 
 
 def discover_datasets() -> list[dict]:
