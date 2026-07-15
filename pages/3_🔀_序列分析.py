@@ -109,14 +109,17 @@ with tab_trans:
     show_less = g2.checkbox("同時顯示「顯著偏少(↓)」（不建議下結論）", value=False)
 
     gseq_all = seq.gseq_all_groups(trans, groups, levels, alpha=alpha)
+    wanted = ["↑ 顯著偏多"] + (["↓ 顯著偏少"] if show_less else [])
     for grp in groups:
         st.markdown(f"**{grp}**")
-        gdf = gseq_all[gseq_all["組別"] == grp]
-        # 只畫顯著偏多；要看偏少才納入
-        wanted = ["↑ 顯著偏多"] + (["↓ 顯著偏少"] if show_less else [])
+        gdf = gseq_all[gseq_all["組別"] == grp].copy()
         shown = gdf[gdf["顯著"].isin(wanted)].copy()
+        # 顯著轉移圖：預設只畫「顯著偏多」；沒勾偏少就把偏少當未顯著（不畫紅橘線）
+        gdf_graph = gdf.copy()
+        if not show_less:
+            gdf_graph.loc[gdf_graph["顯著"] == "↓ 顯著偏少", "顯著"] = ""
         st.graphviz_chart(
-            seq_charts.gseq_graph(gdf, levels, high_min=int(high_min), only_significant=True),
+            seq_charts.gseq_graph(gdf_graph, levels, high_min=int(high_min), only_significant=True),
             width="stretch",
         )
         if shown.empty:

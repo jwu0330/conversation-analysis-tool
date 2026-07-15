@@ -35,7 +35,7 @@
 │       ├── column_types.py    # 欄位型態辨識
 │       ├── descriptive.py     # 描述統計 + 相關分析
 │       ├── grouping.py        # 交叉表（供交叉熱力圖）
-│       ├── stat_tests.py      # t 檢定 / 卡方 + 效果量
+│       ├── stat_tests.py      # 獨立樣本 t 檢定 + Cohen's d
 │       ├── ancova.py          # SPSS 式共變數分析（型 III）
 │       ├── charts.py          # Plotly 圖表
 │       └── exporter.py        # Excel 匯出

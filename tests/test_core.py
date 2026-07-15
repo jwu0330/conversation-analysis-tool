@@ -18,7 +18,6 @@ from src.core import (  # noqa: E402
     column_types,
     data_quality,
     descriptive,
-    grouping,
     stat_tests,
 )
 
@@ -61,26 +60,13 @@ def test_frequency_table():
     assert abs(freq["百分比(%)"].sum() - 100) < 0.01
 
 
-def test_group_aggregate():
+def test_independent_t_test():
     df = _sample_df()
-    res = grouping.group_aggregate(df, ["組別"], "分數", ["count", "mean"])
-    assert set(res["組別"]) == {"實驗組", "對照組"}
-    assert "平均" in res.columns
-
-
-def test_chi_square():
-    df = _sample_df()
-    result = stat_tests.chi_square_test(df, "組別", "層級")
+    result = stat_tests.independent_t_test(df, "分數", "組別")
     assert not np.isnan(result.p_value)
     assert 0 <= result.p_value <= 1
-    assert "Cramér's V" in result.effect_size
+    assert "Cohen's d" in result.effect_size
     assert isinstance(result.interpretation, str) and result.interpretation
-
-
-def test_cramers_v_range():
-    ct = pd.crosstab(_sample_df()["組別"], _sample_df()["層級"]).values
-    v = stat_tests.cramers_v(ct)
-    assert 0 <= v <= 1
 
 
 if __name__ == "__main__":
