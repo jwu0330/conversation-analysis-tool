@@ -12,14 +12,14 @@ from src.core import charts, column_types, descriptive, grouping, stat_tests
 
 st.set_page_config(page_title="敘述性統計", page_icon="📈", layout="wide")
 st.title("📈 敘述性統計")
-st.caption("描述統計、次數／累積排名、相關分析、兩組 t 檢定、交叉熱力圖。")
+st.caption("描述統計、次數／累積排名、相關分析、兩組 t 檢定、多組 ANOVA、交叉熱力圖。")
 
 df = state.require_data()
 num_cols = column_types.numeric_columns(df)
 cat_cols = column_types.categorical_columns(df)
 
-tab_desc, tab_freq, tab_corr, tab_ttest, tab_cross = st.tabs(
-    ["描述統計", "次數／累積排名", "相關分析", "兩組 t 檢定", "交叉熱力圖"]
+tab_desc, tab_freq, tab_corr, tab_ttest, tab_anova, tab_cross = st.tabs(
+    ["描述統計", "次數／累積排名", "相關分析", "兩組 t 檢定", "多組 ANOVA", "交叉熱力圖"]
 )
 
 # ── 描述統計 ──────────────────────────────────────────────
@@ -106,6 +106,70 @@ with tab_ttest:
                 [{"項目": k, "內容": v} for k, v in r.extra.items()]
             )
             state.register_export_table(f"t檢定_{value_col}_by_{group_col}", summary)
+
+# ── 多組 ANOVA（≥3 組；含「問題數量」計數模式）────────────
+with tab_anova:
+    st.caption(
+        "比較 **3 組以上** 平均數（t 檢定只能 2 組）。"
+        "要看「各知識點的**問題數量**有沒有顯著差異」就用下方**計數模式**。"
+    )
+    mode = st.radio("分析對象", ["問題數量（計數）", "用現有數值欄"], horizontal=True)
+    a_alpha = st.selectbox("α", [0.05, 0.01, 0.10], index=0, key="anova_alpha")
+
+    if mode == "用現有數值欄":
+        if not num_cols or not cat_cols:
+            st.info("需要一個數值欄位與一個分類欄位。")
+        else:
+            c1, c2 = st.columns(2)
+            dv = c1.selectbox("數值欄位（依變數）", num_cols, key="anova_dv")
+            fac = c2.selectbox("分類欄位（因子，≥3 組佳）", cat_cols, key="anova_fac")
+            run_df, run_dv, run_fac = df, dv, fac
+    else:
+        st.caption("計數＝每個「觀察單位×分類」的提問筆數；未出現的組合補 0（例：某生沒問到某知識點＝0）。")
+        c1, c2, c3 = st.columns(3)
+        unit = c1.selectbox("觀察單位", cat_cols,
+                            index=(cat_cols.index("學生") if "學生" in cat_cols else 0), key="anova_unit")
+        cat = c2.selectbox("分類欄（因子，例：知識點）", [c for c in cat_cols if c != unit],
+                           index=0, key="anova_cat")
+        fillzero = c3.checkbox("缺項補 0", value=True)
+        grid = df.groupby([unit, cat]).size()
+        if fillzero:
+            grid = grid.unstack(fill_value=0).stack()
+        counts = grid.reset_index(name="問題數量")
+        run_df, run_dv, run_fac = counts, "問題數量", cat
+        with st.expander(f"計數表（{run_df.shape[0]} 列：{unit} × {cat}）"):
+            st.dataframe(run_df, width="stretch", hide_index=True)
+
+    if st.button("執行 ANOVA", type="primary"):
+        r = stat_tests.one_way_anova(run_df, run_dv, run_fac, alpha=a_alpha)
+        if r.p_value != r.p_value:
+            st.error(r.interpretation)
+            for w in r.warnings:
+                st.warning(w)
+        else:
+            if r.significant:
+                st.success(f"✅ F = {r.statistic:.3f}，p = {r.p_value:.4f} < {a_alpha}，"
+                           f"達顯著（η² = {r.effect_size['η²']:.3f}，{r.effect_size['強度']}）。")
+            else:
+                st.info(f"ℹ️ F = {r.statistic:.3f}，p = {r.p_value:.4f} ≥ {a_alpha}，未達顯著。")
+            st.markdown(f"**解釋**：{r.interpretation}")
+
+            st.markdown("**各組描述統計**")
+            st.dataframe(r.extra["描述統計"], width="stretch", hide_index=True)
+            st.markdown("**ANOVA 摘要表**")
+            st.dataframe(r.extra["ANOVA表"], width="stretch", hide_index=True)
+            lc = st.columns(3)
+            lc[0].metric("Levene F", r.extra["Levene_F"])
+            lc[1].metric("Levene p", r.extra["Levene_p"])
+            lc[2].metric("變異數同質", "是" if r.extra["Levene_p"] >= a_alpha else "否")
+            if r.extra.get("Tukey事後") is not None:
+                st.markdown("**Tukey HSD 事後兩兩比較**")
+                st.dataframe(r.extra["Tukey事後"], width="stretch", hide_index=True)
+            if r.warnings:
+                st.warning("\n".join(f"- {w}" for w in r.warnings))
+            state.register_export_table(f"ANOVA_{run_dv}_by_{run_fac}", r.extra["ANOVA表"])
+            state.register_export_table(f"ANOVA描述_{run_dv}_by_{run_fac}", r.extra["描述統計"])
+
 
 # ── 交叉熱力圖 ────────────────────────────────────────────
 with tab_cross:

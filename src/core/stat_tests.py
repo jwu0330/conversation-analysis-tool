@@ -29,6 +29,116 @@ class TestResult:
         return bool(self.p_value < self.alpha) if not np.isnan(self.p_value) else False
 
 
+def _eta2_magnitude(e: float) -> str:
+    """η² 效果量強度（Cohen 1988：.01/.059/.138）。"""
+    if e != e:
+        return "無法判定"
+    if e < 0.01:
+        return "極小"
+    if e < 0.059:
+        return "小效果"
+    if e < 0.138:
+        return "中效果"
+    return "大效果"
+
+
+def one_way_anova(
+    df: pd.DataFrame,
+    value_col: str,
+    group_col: str,
+    alpha: float = 0.05,
+) -> TestResult:
+    """一因子變異數分析（One-way ANOVA）：比較 3 組（含）以上的平均數是否不同。
+
+    回傳 F、df、p、效果量 η²，附各組描述、Levene 同質性、Tukey HSD 事後比較。
+    （2 組時 ANOVA 等同 t 檢定，仍可跑；本工具建議 2 組直接用 t 檢定。）
+    """
+    data = df[[value_col, group_col]].dropna().copy()
+    data[value_col] = pd.to_numeric(data[value_col], errors="coerce")
+    data = data.dropna()
+    data[group_col] = data[group_col].astype(str)
+    levels = sorted(data[group_col].unique())
+    k = len(levels)
+
+    if k < 2:
+        return TestResult(
+            method="一因子 ANOVA", applicable="一個 3 組以上的分類欄 + 一個數值欄",
+            statistic=float("nan"), p_value=float("nan"),
+            warnings=[f"分類欄只有 {k} 組，ANOVA 需至少 2 組。"],
+            interpretation="組數不足，無法進行 ANOVA。", alpha=alpha,
+        )
+    samples = [data.loc[data[group_col] == g, value_col].to_numpy(float) for g in levels]
+    if any(len(s) < 2 for s in samples):
+        return TestResult(
+            method="一因子 ANOVA", applicable="每組至少 2 筆",
+            statistic=float("nan"), p_value=float("nan"),
+            warnings=["有組別樣本數 < 2，無法估計組內變異。"],
+            interpretation="有組別樣本過少。", alpha=alpha,
+        )
+
+    f_stat, p = stats.f_oneway(*samples)
+    grand = float(data[value_col].mean())
+    n_total = len(data)
+    ss_between = float(sum(len(s) * (s.mean() - grand) ** 2 for s in samples))
+    ss_within = float(sum(((s - s.mean()) ** 2).sum() for s in samples))
+    ss_total = ss_between + ss_within
+    df_b, df_w = k - 1, n_total - k
+    eta2 = ss_between / ss_total if ss_total > 0 else float("nan")
+    mag = _eta2_magnitude(eta2)
+
+    lev_stat, lev_p = stats.levene(*samples, center="mean")
+    warnings: list[str] = []
+    if lev_p < alpha:
+        warnings.append(f"Levene p = {lev_p:.4f} < {alpha}：各組變異數不同質，"
+                        "F 檢定需謹慎（可考慮 Welch ANOVA 或無母數 Kruskal-Wallis）。")
+
+    desc = (
+        data.groupby(group_col)[value_col]
+        .agg(n="count", 平均="mean", 標準差="std").round(3)
+        .reset_index().rename(columns={group_col: "組別"})
+    )
+    anova_tbl = pd.DataFrame([
+        {"來源": "組間", "平方和": round(ss_between, 3), "自由度": df_b,
+         "平均平方": round(ss_between / df_b, 3) if df_b else None,
+         "F": round(float(f_stat), 4), "p值": round(float(p), 4), "η²": round(eta2, 3)},
+        {"來源": "組內", "平方和": round(ss_within, 3), "自由度": df_w,
+         "平均平方": round(ss_within / df_w, 3) if df_w else None,
+         "F": None, "p值": None, "η²": None},
+        {"來源": "總和", "平方和": round(ss_total, 3), "自由度": n_total - 1,
+         "平均平方": None, "F": None, "p值": None, "η²": None},
+    ])
+
+    tukey_df = None
+    try:
+        from statsmodels.stats.multicomp import pairwise_tukeyhsd
+        tuk = pairwise_tukeyhsd(data[value_col].to_numpy(float),
+                                data[group_col].to_numpy(), alpha=alpha)
+        tukey_df = pd.DataFrame(tuk._results_table.data[1:],
+                                columns=tuk._results_table.data[0])
+    except Exception:  # noqa: BLE001
+        pass
+
+    sig = "達統計顯著" if p < alpha else "未達統計顯著"
+    interp = (
+        f"共 {k} 組、總樣本 {n_total}。F({df_b}, {df_w}) = {f_stat:.3f}，p = {p:.4f}，{sig}"
+        f"（α = {alpha}）。效果量 η² = {eta2:.3f}（{mag}）。"
+        + ("各組平均數間存在顯著差異，詳見 Tukey 事後比較。" if p < alpha
+           else "尚無足夠證據顯示各組平均數有差異。")
+    )
+    return TestResult(
+        method="一因子變異數分析 One-way ANOVA",
+        applicable="一個分類欄（≥3 組佳）+ 一個連續數值欄；無共變量",
+        statistic=float(f_stat), p_value=float(p),
+        effect_size={"η²": float(eta2), "強度": mag},
+        extra={
+            "組數": k, "總樣本": n_total, "df組間": df_b, "df組內": df_w,
+            "Levene_F": round(float(lev_stat), 3), "Levene_p": round(float(lev_p), 4),
+            "描述統計": desc, "ANOVA表": anova_tbl, "Tukey事後": tukey_df,
+        },
+        warnings=warnings, interpretation=interp, alpha=alpha,
+    )
+
+
 def _cohens_d_magnitude(d: float) -> str:
     d = abs(d)
     if np.isnan(d):
