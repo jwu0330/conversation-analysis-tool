@@ -74,23 +74,31 @@ with tab_trans:
     st.dataframe(trans, width="stretch", hide_index=True)
     state.register_export_table("序列_Bloom轉移表", trans)
 
-    st.markdown("#### 轉移圖與矩陣")
+    st.markdown("#### 轉移圖")
+    st.caption(
+        "每組三種呈現：① 轉移流向圖(Sankey，前題→後題) ② 圈箭頭網絡圖（Level 釘成六邊形，"
+        "綠=往高階、橘=往低階、灰=同層）③ 轉移矩陣熱圖。"
+    )
     normalize = st.radio("矩陣數值", ["次數", "列機率(%)"], horizontal=True) == "列機率(%)"
     for grp in groups:
         st.markdown(f"**{grp}**")
         g_trans = trans_shown[trans_shown["組別"] == grp]
-        st.graphviz_chart(
-            seq_charts.transition_graph(g_trans, levels, high_min=int(high_min)),
+        # ① Sankey 轉移流向圖（Plotly，一定會顯示）
+        st.plotly_chart(
+            seq_charts.transition_sankey(g_trans, title=f"{grp}：Bloom 轉移流向"),
             width="stretch",
         )
-        with st.expander(f"{grp}：Sankey 流向圖與轉移矩陣熱圖"):
-            colA, colB = st.columns(2)
-            colA.plotly_chart(
-                seq_charts.transition_sankey(g_trans, title=f"{grp}：Bloom 轉移路徑"),
+        colA, colB = st.columns(2)
+        with colA:
+            st.caption("圈箭頭轉移網絡圖")
+            st.graphviz_chart(
+                seq_charts.transition_graph(g_trans, levels, high_min=int(high_min)),
                 width="stretch",
             )
+        with colB:
+            st.caption("轉移矩陣熱圖")
             matrix = seq.transition_matrix(trans, grp, levels, normalize=normalize)
-            colB.plotly_chart(
+            st.plotly_chart(
                 seq_charts.transition_heatmap(matrix, title=f"{grp}：轉移矩陣"),
                 width="stretch",
             )
