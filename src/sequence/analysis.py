@@ -201,10 +201,13 @@ def gseq_stats(
             p_trans = o / row_tot[i] if row_tot[i] > 0 else float("nan")
             var = e * (1 - row_tot[i] / n) * (1 - col_tot[j] / n) if n > 0 else float("nan")
             z = (o - e) / np.sqrt(var) if (var is not None and var > 0) else float("nan")
+            low_e = bool(e == e and e < 5)  # 期望次數 < 5：z 的常態近似不可靠
             if np.isnan(z):
                 p_val, sig = float("nan"), ""
             else:
                 p_val = float(2 * (1 - stats.norm.cdf(abs(z))))
+                # 顯著偏多(↑)才是滯後序列分析主要解讀的「真實模式」；
+                # 偏少(↓)一般不下結論，另欄標示、預設不強調。
                 sig = "↑ 顯著偏多" if z >= z_crit else "↓ 顯著偏少" if z <= -z_crit else ""
             records.append(
                 {
@@ -217,6 +220,7 @@ def gseq_stats(
                     "調整殘差z": round(z, 2) if z == z else None,
                     "p值": round(p_val, 4) if p_val == p_val else None,
                     "顯著": sig,
+                    "可信度": "低(期望<5)" if low_e else "",
                 }
             )
     return pd.DataFrame.from_records(records)

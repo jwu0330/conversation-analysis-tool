@@ -32,7 +32,7 @@ def require_data() -> pd.DataFrame:
     """分頁開頭呼叫：沒有資料就提示並停止該頁執行。"""
     df = get_dataframe()
     if df is None or df.empty:
-        st.warning("尚未載入資料，請先到「📤 資料上傳」頁上傳 Excel 或 CSV。")
+        st.warning("尚未載入資料，請先回「首頁」上傳 Excel／CSV 或載入內建資料。")
         st.stop()
     return df
 
