@@ -1,7 +1,8 @@
 """序列分析核心邏輯（純函式，不依賴 Streamlit 或 src/core）。
 
-流程：原始「一題一列」資料 → 清理 → 個人 Bloom 序列 → Lag-1 轉移表
+流程：原始「一題一列」資料 → 清理 → 個人節點序列 → Lag-1 轉移表
 → 轉移矩陣 / 高低階轉移 / 題序剖面。
+（節點＝知識點碼、知識點類別碼，或舊有的 SOLO/Bloom 層級，皆可。）
 """
 from __future__ import annotations
 
@@ -11,26 +12,32 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-# 標準欄位名（模組內部統一使用）
-STUDENT, GROUP, BLOOM, ORDER = "StudentID", "Group", "Bloom", "Order"
+# 標準欄位名（模組內部統一使用）。
+# NODE＝序列節點欄，可為任何「一格一個整數碼」的欄位：知識點碼、知識點類別碼，
+# 或舊有的 SOLO/Bloom 層級。序列分析只看「碼」的先後轉移，與其語意無關。
+STUDENT, GROUP, NODE, ORDER = "StudentID", "Group", "Node", "Order"
+BLOOM = NODE  # 向後相容別名（舊程式與測試沿用 seq.BLOOM）
 
-# SOLO 顯示標籤：層級數字(=SOLO_Score) → 字母，方便對照「第幾層＋結構代號」。
-# P=前結構、U=單點、M=多點、R=關聯、EA=延伸抽象。
-_SOLO_LETTER = {0: "P", 1: "U", 2: "M", 3: "R", 4: "EA"}
+# 節點顯示名稱對照 {節點碼: 顯示文字}，由資料動態設定（見 set_label_map / build_label_map）。
+# 取代舊的 SOLO 字母（S3·R）與 2026-07 暫時硬寫的 _TEMP_NAME_MAP：改成「你選哪欄當
+# 顯示名稱，就用那欄的文字」，因此知識點版顯示 FTP、類別版顯示「檔案傳輸類」都正確。
+# ★ 未設定（或 set_label_map({})）時退回通用標籤「L{v}」，不再假設節點是認知層級。
+_LABEL_MAP: dict[int, str] = {}
+
+
+def set_label_map(mapping: dict | None) -> None:
+    """設定節點碼→顯示文字（例：1→'檔案傳輸' 或 1→'檔案傳輸類'）。傳空則清除、回通用標籤。"""
+    global _LABEL_MAP
+    _LABEL_MAP = {int(k): str(v) for k, v in mapping.items()} if mapping else {}
 
 
 def level_label(v: int) -> str:
-    """把層級數字轉成顯示標籤，例如 3 → 'S3·R'（第 3 層、關聯結構）。
-
-    未知層級（超出 0–4）退回 'S{v}'，計算不受影響、只影響畫面顯示。
-    """
-    v = int(v)
-    letter = _SOLO_LETTER.get(v)
-    return f"S{v}·{letter}" if letter else f"S{v}"
+    """節點碼 → 顯示標籤。有設定對照就用資料本身的文字，否則退回通用 'L{v}'。"""
+    return _LABEL_MAP.get(int(v), f"L{int(v)}")
 
 
-def parse_bloom_level(value) -> int | None:
-    """把各種寫法的 Bloom 標記轉成整數 Level。
+def parse_level(value) -> int | None:
+    """把各種寫法的節點／層級標記轉成整數。
 
     支援："Level 4"、"L4"、"L0"、4、"4" → 4 / 0；無法解析回傳 None。
     """
@@ -42,6 +49,27 @@ def parse_bloom_level(value) -> int | None:
         return int(value)
     m = re.search(r"\d+", str(value))
     return int(m.group()) if m else None
+
+
+parse_bloom_level = parse_level  # 向後相容別名（舊程式與測試沿用）
+
+
+def build_label_map(df: pd.DataFrame, node_col: str, label_col: str) -> dict:
+    """由資料建立 {節點碼: 顯示文字}：每個碼取其最常見的標籤值。
+
+    例：node_col='知識點類別碼'、label_col='知識點類別' → {1:'檔案傳輸類', ...}；
+        node_col='知識點層級'、  label_col='知識點'     → {2:'FTP', 3:'P2P', ...}。
+    """
+    m: dict[int, str] = {}
+    sub = df[[node_col, label_col]].dropna()
+    for code, grp in sub.groupby(node_col):
+        ci = parse_level(code)
+        if ci is None:
+            continue
+        vals = grp[label_col].astype(str)
+        if len(vals):
+            m[ci] = vals.mode().iloc[0]
+    return m
 
 
 def guess_columns(columns: list[str]) -> dict[str, str | None]:
@@ -73,7 +101,7 @@ def prepare(
     order_col: str,
     include_l0: bool = True,
 ) -> pd.DataFrame:
-    """整理成標準四欄，解析 Bloom Level，去除必要欄位缺漏的列。"""
+    """整理成標準四欄，把節點欄解析成整數碼，去除必要欄位缺漏的列。"""
     work = df[[student_col, group_col, bloom_col, order_col]].copy()
     work.columns = [STUDENT, GROUP, BLOOM, ORDER]
     work[BLOOM] = work[BLOOM].map(parse_bloom_level)
@@ -89,7 +117,7 @@ def _ordered(work: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_sequences(work: pd.DataFrame) -> pd.DataFrame:
-    """每位學生一條依時間排序的 Bloom 序列。"""
+    """每位學生一條依時間排序的節點序列。"""
     seqs = (
         _ordered(work)
         .groupby([STUDENT, GROUP], sort=False)[BLOOM]
@@ -161,16 +189,16 @@ def high_low_transitions(
 
 
 def position_profile(work: pd.DataFrame) -> pd.DataFrame:
-    """題序剖面：各組在第 1、2、3… 題的平均 Bloom Level。"""
+    """題序剖面：各組在第 1、2、3… 題的平均節點碼（僅對有序的層級型節點有意義）。"""
     w = _ordered(work).copy()
     w["題序"] = w.groupby([STUDENT], sort=False).cumcount() + 1
     prof = (
         w.groupby([GROUP, "題序"])[BLOOM]
-        .agg(平均SOLO="mean", 人次="count")
+        .agg(平均層級="mean", 人次="count")
         .reset_index()
         .rename(columns={GROUP: "組別"})
     )
-    prof["平均SOLO"] = prof["平均SOLO"].round(2)
+    prof["平均層級"] = prof["平均層級"].round(2)
     return prof
 
 
@@ -297,9 +325,9 @@ def analyze(
 
 
 # ---------------------------------------------------------------------------
-# 題序 × Bloom Level 趨勢／軌跡分析（線性迴歸）
+# 題序 × 節點碼 趨勢／軌跡分析（線性迴歸；僅對有序的層級型節點有意義）
 #
-#   對每一組（或每一位學生）以「題序 x」預測「Bloom Level y」做簡單線性迴歸：
+#   對每一組（或每一位學生）以「題序 x」預測「節點碼 y」做簡單線性迴歸：
 #       ŷ = a + b·x
 #   斜率 b > 0 且顯著 → 提問隨時間逐步深化。
 #   平均反應線的 95% 信賴區帶：ŷ ± t(1-α/2, n-2) · s · sqrt(1/n + (x-x̄)²/Sxx)
@@ -311,7 +339,7 @@ def position_points(work: pd.DataFrame) -> pd.DataFrame:
     w = _ordered(work).copy()
     w["題序"] = w.groupby([STUDENT], sort=False).cumcount() + 1
     return w[[STUDENT, GROUP, "題序", BLOOM]].rename(
-        columns={STUDENT: "學生", GROUP: "組別", BLOOM: "Bloom"}
+        columns={STUDENT: "學生", GROUP: "組別", BLOOM: "層級"}
     )
 
 
@@ -321,7 +349,7 @@ def regression_by_group(work: pd.DataFrame) -> pd.DataFrame:
     rows: list[dict] = []
     for g, sub in pts.groupby("組別", sort=True):
         if len(sub) >= 3 and sub["題序"].nunique() >= 2:
-            res = stats.linregress(sub["題序"].to_numpy(float), sub["Bloom"].to_numpy(float))
+            res = stats.linregress(sub["題序"].to_numpy(float), sub["層級"].to_numpy(float))
             rows.append(
                 {
                     "組別": g,
@@ -346,7 +374,7 @@ def regression_band(
     pts = position_points(work)
     sub = pts[pts["組別"] == group]
     x = sub["題序"].to_numpy(float)
-    y = sub["Bloom"].to_numpy(float)
+    y = sub["層級"].to_numpy(float)
     n = len(x)
     if n < 3 or np.ptp(x) == 0:
         return None
@@ -374,7 +402,7 @@ def student_slopes(work: pd.DataFrame, min_points: int = 3) -> pd.DataFrame:
     rows: list[dict] = []
     for (sid, g), sub in pts.groupby(["學生", "組別"], sort=False):
         if len(sub) >= min_points and sub["題序"].nunique() >= 2:
-            res = stats.linregress(sub["題序"].to_numpy(float), sub["Bloom"].to_numpy(float))
+            res = stats.linregress(sub["題序"].to_numpy(float), sub["層級"].to_numpy(float))
             rows.append({"學生": sid, "組別": g, "斜率": round(float(res.slope), 4),
                          "提問數": int(len(sub))})
     return pd.DataFrame(rows)

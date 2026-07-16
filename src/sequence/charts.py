@@ -21,7 +21,7 @@ _LEVEL_COLOR = {
 
 
 def transition_sankey(trans_group: pd.DataFrame, title: str = "") -> go.Figure:
-    """某一組的 Bloom 轉移 Sankey 圖。
+    """某一組的節點轉移 Sankey 圖。
 
     trans_group: 欄位含 Source、Target、次數（單一組別）。
     來源與目標節點分左右兩欄，避免自我迴圈把圖畫亂。
@@ -72,17 +72,22 @@ def transition_graph(
     trans_group: pd.DataFrame,
     levels: list[int],
     high_min: int = 4,
+    ordinal: bool = True,
 ) -> graphviz.Digraph:
-    """Bloom 轉移網絡圖（節點位置固定成六邊形）。
+    """節點轉移網絡圖（節點位置固定成六邊形）。
 
     - 節點：圓圈釘在圓周固定位置（跨組一致，不會每次亂飄）。
       顏色 🔵藍=低階、🔴紅=高階（以 high_min 為界）。
-    - 箭頭方向配色：綠=往較高 Bloom、橘=往較低、灰=同層級(自我迴圈)。
+    - 箭頭方向配色：綠=往較高碼、橘=往較低碼、灰=同碼(自我迴圈)。
     - 箭頭粗細與數字 = 轉移次數。
     傳給 st.graphviz_chart() 顯示；用 neato 引擎才能吃固定座標。
     """
     up_c, down_c, loop_c = "#27AE60", "#E67E22", "#95A5A6"
     low_c, high_c = "#5DADE2", "#E74C3C"
+    # ⚠️【暫時性產物 2026-07】：節點是「知識點」而非 SOLO 層級，藍/紅高低階上色
+    #   對知識點沒有意義，故先停用、統一中性灰。★ 恢復方式同 gseq_graph（見該處註解）。
+    # low_c, high_c = "#5DADE2", "#E74C3C"
+    neutral_c = "#7F8C8D"  # 暫時：所有節點統一中性灰
 
     g = graphviz.Digraph(engine="neato")
     g.attr(bgcolor="white", outputorder="edgesfirst", overlap="false",
@@ -95,14 +100,17 @@ def transition_graph(
     positions = _ring_positions(levels)
     for lv in sorted(levels):
         x, y = positions[lv]
-        fill = high_c if lv >= high_min else low_c
+        # ⚠️ 暫時：統一中性灰（原：fill = high_c if lv >= high_min else low_c）
+        fill = (high_c if lv >= high_min else low_c) if ordinal else neutral_c
         g.node(level_label(lv), label=level_label(lv), pos=f"{x},{y}!", fillcolor=fill)
 
     if not trans_group.empty:
         max_count = max(int(trans_group["次數"].max()), 1)
         for r in trans_group.itertuples():
             width = 0.8 + 3.0 * (r.次數 / max_count)
-            if r.Target > r.Source:
+            if not ordinal:
+                color = loop_c
+            elif r.Target > r.Source:
                 color = up_c
             elif r.Target < r.Source:
                 color = down_c
@@ -144,14 +152,14 @@ def highlow_bar(highlow: pd.DataFrame, title: str = "") -> go.Figure:
 
 
 def position_line(profile: pd.DataFrame, title: str = "") -> go.Figure:
-    """題序流動圖：各組平均 SOLO Level 隨題序變化。"""
+    """題序流動圖：各組平均節點碼隨題序變化（僅對有序的層級型節點有意義）。"""
     if profile.empty:
         return _empty_fig(title)
     fig = px.line(
-        profile, x="題序", y="平均SOLO", color="組別", markers=True,
+        profile, x="題序", y="平均層級", color="組別", markers=True,
         title=title, template=_TEMPLATE,
     )
-    fig.update_yaxes(title="平均 SOLO Level")
+    fig.update_yaxes(title="平均節點碼")
     fig.update_xaxes(dtick=1)
     return fig
 
@@ -186,9 +194,10 @@ def trend_figure(
     show_zones: bool = True,
     title: str = "",
 ) -> go.Figure:
-    """題序 × Bloom Level 趨勢圖：散布點 + 每組迴歸線(含信賴區帶) + 高低階底色。
+    """題序 × 節點碼 趨勢圖：散布點 + 每組迴歸線(含信賴區帶) + 高低階底色。
 
-    points: 欄位 學生、組別、題序、Bloom。
+    （趨勢／高低階僅對「有序的層級型節點」有意義；名目型知識點請看轉移分析。）
+    points: 欄位 學生、組別、題序、層級。
     bands:  {組別: regression_band() 的回傳 dict 或 None}。
     """
     fig = go.Figure()
@@ -209,10 +218,10 @@ def trend_figure(
         jitter = rng.uniform(-0.12, 0.12, size=len(sub))
         # 散布點
         fig.add_trace(go.Scatter(
-            x=sub["題序"] + jitter, y=sub["Bloom"], mode="markers",
+            x=sub["題序"] + jitter, y=sub["層級"], mode="markers",
             name=f"{g}（提問）", legendgroup=g,
             marker=dict(color=_hex_to_rgba(c, 0.45), size=6),
-            hovertemplate="題序%{x:.0f}<br>SOLO L%{y}<extra></extra>",
+            hovertemplate="題序%{x:.0f}<br>節點碼 %{y}<extra></extra>",
         ))
         band = bands.get(g)
         if band is not None:
@@ -231,7 +240,7 @@ def trend_figure(
             ))
 
     fig.update_layout(title=title, template=_TEMPLATE, xaxis_title="題序（第幾題）",
-                      yaxis_title="SOLO Level", hovermode="closest")
+                      yaxis_title="節點碼", hovermode="closest")
     fig.update_yaxes(dtick=1, range=[level_min - 0.6, level_max + 0.6])
     fig.update_xaxes(dtick=1)
     return fig
@@ -260,12 +269,17 @@ def gseq_graph(
     """GSEQ 事件轉移圖（六邊形固定位置，線上標調整後殘差 z）。
 
     仿標準滯後序列分析工具的「事件轉移圖」：
-    - 節點：Bloom Level 圓圈（藍=低階、紅=高階），位置固定。
+    - 節點：圓圈（顏色目前統一中性灰，見下方暫時性註解），位置固定。
     - only_significant=True ：只畫 |z|>z_crit 的顯著轉移。
     - only_significant=False：畫出所有實際發生的轉移；顯著者上色標 z、未達顯著者淡灰細線。
     - 配色：🔴紅實線=顯著偏多、🟠橘虛線=顯著偏少、⚪淡灰細線=未達顯著。
     """
-    low_c, high_c = "#5DADE2", "#E74C3C"
+    # ⚠️【暫時性產物 2026-07】：節點是「知識點」而非 SOLO 認知層級，原本用
+    #   high_min 分高/低階並上藍(#5DADE2)/紅(#E74C3C)，對知識點沒有意義，故先停用、
+    #   統一中性灰。★ 日後若有顏色需求（例如依知識點主題分群上色）：取消下一行註解、
+    #   把 fill 那行改回 `high_c if lv >= high_min else low_c` 即可恢復。
+    # low_c, high_c = "#5DADE2", "#E74C3C"
+    neutral_c = "#7F8C8D"  # 暫時：所有節點統一中性灰
     up_c, down_c, ns_c = "#C0392B", "#E67E22", "#BDC3C7"
     g = graphviz.Digraph(engine="neato")
     g.attr(bgcolor="white", outputorder="edgesfirst", overlap="false",
@@ -276,7 +290,8 @@ def gseq_graph(
     positions = _ring_positions(levels)
     for lv in sorted(levels):
         x, y = positions[lv]
-        fill = high_c if lv >= high_min else low_c
+        # ⚠️ 暫時：統一中性灰（原：fill = high_c if lv >= high_min else low_c）
+        fill = neutral_c
         g.node(level_label(lv), label=level_label(lv), pos=f"{x},{y}!", fillcolor=fill)
 
     df = gseq_group.copy()

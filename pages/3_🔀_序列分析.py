@@ -1,50 +1,90 @@
-"""SOLO 提問序列分析頁（重構版）。
+"""提問序列分析頁（重構版）。
+
+節點可為知識點、知識點類別，或認知層級（SOLO/Bloom）——由「節點欄位」決定。
 
 三大區塊（把原本 7 個雜亂分頁收斂）：
-    ① 個人序列        每位學生的 SOLO 提問時間序列
+    ① 個人序列        每位學生的提問節點時間序列
     ② 轉移分析        轉移表 → 轉移圖 → GSEQ 顯著轉移（預設只顯示「顯著偏多」）
-    ③ 趨勢分析        題序流動平均 + 題序×SOLO 線性迴歸／個別學生斜率
+    ③ 趨勢分析        題序流動平均 + 題序×節點碼 線性迴歸／個別學生斜率
 
 GSEQ 修正：滯後序列分析主要解讀「顯著偏多」（正殘差＝真實模式）；「顯著偏少」
 一般不下結論，預設收起。期望次數 < 5 的格子標為「可信度低」，避免誤讀。
 """
 from __future__ import annotations
 
+import os
+
 import streamlit as st
 
-from src import state
+from src import datasets, state
 from src.sequence import analysis as seq
 from src.sequence import charts as seq_charts
 
 st.set_page_config(page_title="序列分析", page_icon="🔀", layout="wide")
-st.title("🔀 SOLO 提問序列分析")
-st.caption("把每位學生依時間排列的 SOLO 提問層級轉成序列，觀察轉移模式並比較各組。"
-           "（層級 L0=P 前結構、L1=U 單點、L2=M 多點、L3=R 關聯、L4=EA 延伸抽象）")
+st.title("🔀 提問序列分析")
+st.caption("直接選擇分析版本，系統會載入對應檔案並固定正確欄位；只有自訂檔案才需要手動對應。")
 
-df = state.require_data()
+mode = st.radio(
+    "分析單位",
+    ["個別知識點", "知識點類別"],
+    horizontal=True,
+    help="個別知識點使用 15 個知識點；知識點類別使用 4 大類。兩者各自使用已整理好的序列檔。",
+)
+config = {
+    "個別知識點": {
+        "filename": "知識點_序列展開版.xlsx", "node": "知識點層級", "label": "知識點",
+    },
+    "知識點類別": {
+        "filename": "知識點_類別序列展開版.xlsx", "node": "知識點類別碼", "label": "知識點類別",
+    },
+}[mode]
 
-# ── 欄位對應 + 參數（共用設定列）─────────────────────────
-with st.expander("① 欄位對應與分析參數", expanded=True):
+custom = False
+with st.expander("進階：改用目前上傳檔案／手動對應欄位", expanded=False):
+    custom = st.checkbox("使用目前上傳的資料，不自動載入標準序列檔", value=False)
+
+if not custom:
+    path = os.path.join(datasets.PROJECT_ROOT, "data", "對話分析", config["filename"])
+    if not os.path.isfile(path):
+        st.error(f"找不到標準序列檔：{config['filename']}。請先建立該檔，或展開進階設定改用上傳資料。")
+        st.stop()
+    df = datasets.load_dataset(path)
+    student_col, group_col = "學生", "組別"
+    node_col, label_col, order_col = config["node"], config["label"], "題序"
+    include_l0, high_min, node_is_ordinal = True, 4, False
+    st.success(
+        f"目前分析：**{mode}** ｜ 檔案：**{config['filename']}** ｜ "
+        f"節點：**{label_col}** ｜ 排序：**{order_col}**"
+    )
+else:
+    df = state.require_data()
     cols = list(df.columns)
     guess = seq.guess_columns(cols)
 
     def _idx(name: str | None) -> int:
         return cols.index(name) if name in cols else 0
 
-    c1, c2, c3, c4 = st.columns(4)
-    student_col = c1.selectbox("學生 ID 欄位", cols, index=_idx(guess["student"]))
-    group_col = c2.selectbox("組別欄位", cols, index=_idx(guess["group"]))
-    bloom_col = c3.selectbox("SOLO 層級欄位", cols, index=_idx(guess["bloom"]))
-    order_col = c4.selectbox("排序依據（題序/時間）", cols, index=_idx(guess["order"]))
+    with st.expander("自訂欄位對應", expanded=True):
+        c1, c2, c3, c4 = st.columns(4)
+        student_col = c1.selectbox("學生欄位", cols, index=_idx(guess["student"]))
+        group_col = c2.selectbox("組別欄位", cols, index=_idx(guess["group"]))
+        node_col = c3.selectbox("節點代碼欄位", cols, index=_idx(guess["bloom"]))
+        order_col = c4.selectbox("排序欄位", cols, index=_idx(guess["order"]))
+        label_options = ["（使用節點代碼）"] + cols
+        label_col = st.selectbox("節點顯示名稱欄位", label_options)
+        node_is_ordinal = st.radio(
+            "節點性質", [False, True], horizontal=True,
+            format_func=lambda x: "名目類別（知識點／知識點類別）" if not x else "有序層級（Bloom／SOLO）",
+        )
+        include_l0 = st.checkbox("包含代碼 0", value=True)
+        high_min = st.number_input("高階起始碼（僅有序層級使用）", 1, 15, 4)
 
-    p1, p2, p3 = st.columns(3)
-    include_l0 = p1.checkbox("包含 L0", value=True)
-    high_min = p2.number_input("高階起始 Level（含以上）", 1, 6, 4)
-    min_edge = p3.number_input("轉移圖最小次數門檻", 0, 50, 1)
+seq.set_label_map(seq.build_label_map(df, node_col, label_col) if label_col in df.columns else {})
+min_edge = st.number_input("轉移圖最小次數門檻", 0, 50, 1)
 
-work = seq.prepare(df, student_col, group_col, bloom_col, order_col, include_l0=include_l0)
+work = seq.prepare(df, student_col, group_col, node_col, order_col, include_l0=include_l0)
 if work.empty:
-    st.error("整理後沒有可用資料，請確認欄位對應（SOLO 層級欄需能解析數字 0–4）。")
+    st.error("整理後沒有可用資料，請確認欄位對應（節點欄需能解析出整數碼）。")
     st.stop()
 if student_col == order_col:
     st.warning("『學生 ID』與『排序依據』選到同一欄，序列可能不正確，建議分開選。")
@@ -53,7 +93,7 @@ levels = seq.all_levels(work)
 groups = sorted(work[seq.GROUP].unique().tolist())
 st.caption(
     f"有效提問 {len(work)} 筆、學生 {work[seq.STUDENT].nunique()} 位、"
-    f"組別 {groups}、層級：{[seq.level_label(v) for v in levels]}"
+    f"組別 {groups}、節點：{[seq.level_label(v) for v in levels]}"
 )
 
 trans = seq.transitions(work)
@@ -66,7 +106,7 @@ with tab_seq:
     seqs = seq.build_sequences(work)
     st.dataframe(seqs[["學生", "組別", "提問數", "序列字串"]],
                  width="stretch", hide_index=True)
-    state.register_export_table("序列_個人SOLO序列", seqs[["學生", "組別", "提問數", "序列字串"]])
+    state.register_export_table("序列_個人節點序列", seqs[["學生", "組別", "提問數", "序列字串"]])
 
 # ══ ② 轉移分析（每塊可收合，圖固定小尺寸，方便單頁截圖）════
 with tab_trans:
@@ -86,7 +126,7 @@ with tab_trans:
     # 轉移表（收合）
     with st.expander("📋 轉移表（Source→Target 次數，全部組別）", expanded=False):
         st.dataframe(trans, width="stretch", hide_index=True)
-        state.register_export_table("序列_SOLO轉移表", trans)
+        state.register_export_table("序列_節點轉移表", trans)
 
     # 每組一個收合區，組內用小分頁切換視角
     for grp in groups:
@@ -97,13 +137,15 @@ with tab_trans:
             )
             with v_sankey:
                 st.plotly_chart(
-                    seq_charts.transition_sankey(g_trans, title=f"{grp}：SOLO 轉移流向"),
+                    seq_charts.transition_sankey(g_trans, title=f"{grp}：節點轉移流向"),
                     width="stretch",
                 )
             with v_net:
                 st.caption("Level 釘成六邊形；綠=往高階、橘=往低階、灰=同層。")
                 st.graphviz_chart(
-                    seq_charts.transition_graph(g_trans, levels, high_min=int(high_min)),
+                    seq_charts.transition_graph(
+                        g_trans, levels, high_min=int(high_min), ordinal=node_is_ordinal
+                    ),
                     width="content",
                 )
             with v_heat:
@@ -133,28 +175,31 @@ with tab_trans:
                     st.dataframe(shown, width="stretch", hide_index=True)
                 state.register_export_table(f"序列_GSEQ統計_{grp}", gdf)
 
-    # 高低階轉移（收合）
-    with st.expander("📊 高低階轉移（低→高／高→高／高→低／低→低）", expanded=False):
-        highlow = seq.high_low_transitions(work, high_min=int(high_min))
-        st.dataframe(highlow, width="stretch", hide_index=True)
-        st.plotly_chart(
-            seq_charts.highlow_bar(highlow, title="高低階轉移（組內比例）"), width="stretch"
-        )
-        state.register_export_table("序列_高低階轉移", highlow)
+    if node_is_ordinal:
+        with st.expander("📊 高低階轉移（低→高／高→高／高→低／低→低）", expanded=False):
+            highlow = seq.high_low_transitions(work, high_min=int(high_min))
+            st.dataframe(highlow, width="stretch", hide_index=True)
+            st.plotly_chart(
+                seq_charts.highlow_bar(highlow, title="高低階轉移（組內比例）"), width="stretch"
+            )
+            state.register_export_table("序列_高低階轉移", highlow)
 
 # ══ ③ 趨勢分析（題序流動 + 迴歸軌跡）══════════════════════
 with tab_trend:
-    st.markdown("#### 題序流動：各組每一題的平均 SOLO Level")
+    if not node_is_ordinal:
+        st.info("知識點與知識點類別是名目類別，代碼大小沒有高低意義，因此不計算平均代碼、線性趨勢或高低階轉換。")
+        st.stop()
+    st.markdown("#### 題序流動：各組每一題的平均節點碼（僅層級型節點有意義）")
     profile = seq.position_profile(work)
     st.plotly_chart(
-        seq_charts.position_line(profile, title="題序流動：各組平均 SOLO Level"),
+        seq_charts.position_line(profile, title="題序流動：各組平均節點碼"),
         width="stretch",
     )
     st.dataframe(profile, width="stretch", hide_index=True)
     state.register_export_table("序列_題序剖面", profile)
 
     st.divider()
-    st.markdown("#### 趨勢／軌跡：題序 × SOLO 線性迴歸")
+    st.markdown("#### 趨勢／軌跡：題序 × 節點碼 線性迴歸（僅層級型節點有意義）")
     o1, o2 = st.columns(2)
     show_zones = o1.checkbox("顯示高低階底色", value=True)
     show_band = o2.checkbox("顯示 95% 信賴區帶", value=True)
@@ -166,13 +211,13 @@ with tab_trend:
             points, bands, high_min=int(high_min),
             level_min=min(levels), level_max=max(levels),
             show_band=show_band, show_zones=show_zones,
-            title="題序 × SOLO Level 趨勢",
+            title="題序 × 節點碼 趨勢",
         ),
         width="stretch",
     )
 
     regs = seq.regression_by_group(work)
-    st.markdown("**各組迴歸結果**（斜率＝每多問一題，SOLO 平均變化）")
+    st.markdown("**各組迴歸結果**（斜率＝每多問一題，節點碼平均變化）")
     st.dataframe(regs, width="stretch", hide_index=True)
     for _, r in regs.iterrows():
         if r["斜率"] is None:
