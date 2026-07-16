@@ -11,7 +11,7 @@ import pandas as pd
 import streamlit as st
 
 from src import state
-from src.core import ancova, column_types, stat_tests
+from src.core import ancova, column_types, kcr_metrics, stat_tests
 
 st.set_page_config(page_title="統計分析", page_icon="📐", layout="wide")
 st.title("📐 統計分析")
@@ -49,20 +49,29 @@ def _show_result(r, symbol: str, alpha: float) -> bool:
 # ── 兩組 t 檢定：判斷向度 → 分組基準 → α ─────────────────
 if method == "兩組 t 檢定":
     st.subheader("兩組平均數比較")
-    st.caption("判斷向度＝要比較的數值；分組基準＝把資料分成哪兩組。正式研究通常應先整理成每位學生一列。")
-    if not num_cols or not cat_cols:
-        st.warning("需要至少一個數值欄位與一個剛好兩組的分類欄位。")
+    st.caption("觀測向度＝K、C 或 R；系統先依題目轉碼，再彙整成每位學生一列，避免把同一學生的多次提問誤當成獨立樣本。")
+    metric_df = kcr_metrics.student_metrics(df)
+    if metric_df.empty:
+        st.warning("目前資料缺少學生、組別或 K/C/R 欄位，無法建立學生層級比較指標。")
         st.stop()
     c1, c2, c3 = st.columns([2, 2, 1])
-    value_col = c1.selectbox("判斷向度（比較的數值）", num_cols, key="tt_value")
-    group_col = c2.selectbox("分組基準（剛好 2 組）", cat_cols, key="tt_group")
+    value_col = c1.selectbox(
+        "觀測向度（學生層級）", ["K", "C", "R"],
+        format_func=lambda key: kcr_metrics.METRIC_LABELS[key], key="tt_value",
+    )
+    group_col = "組別"
+    c2.selectbox("分組基準（固定）", [group_col], disabled=True, key="tt_group")
     alpha = c3.selectbox("α", [0.05, 0.01, 0.10], key="tt_alpha")
-    st.info(f"設定 → 判斷向度：**{value_col}** ｜ 分組基準：**{group_col}** ｜ α = {alpha}")
+    valid_n = int(metric_df[value_col].notna().sum())
+    st.info(
+        f"設定 → 觀測向度：**{kcr_metrics.METRIC_LABELS[value_col]}** ｜ "
+        f"分組基準：**實驗組／對照組** ｜ 有效學生：**{valid_n}** ｜ α = {alpha}"
+    )
     if st.button("執行 t 檢定", type="primary"):
-        r = stat_tests.independent_t_test(df, value_col, group_col, alpha=alpha)
+        r = stat_tests.independent_t_test(metric_df, value_col, group_col, alpha=alpha)
         if _show_result(r, "t", alpha):
             summary = pd.DataFrame([{"項目": k, "內容": v} for k, v in r.extra.items()])
-            state.register_export_table(f"t檢定_{value_col}_by_{group_col}", summary)
+            state.register_export_table(f"t檢定_{value_col}_by_組別", summary)
     st.stop()
 
 
