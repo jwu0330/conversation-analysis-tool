@@ -25,6 +25,9 @@ SRC = os.path.join(ROOT, "data", "對話分析", "原始檔", "SOLO_質性轉量
 OUT = os.path.join(ROOT, "data", "對話分析", "SOLO_序列分析_精簡.xlsx")
 SHEET = "10_SOLO逐題量化"
 
+# 與 Bloom 正式分析母體一致：排除 4 位高比例無效輸入學生，共 23 題。
+EXCLUDED_STUDENTS = ["許晉瑜", "Test1234!s", "郭承武", "林子弘"]
+
 # 原始欄位 → 精簡欄位（欄名刻意對齊 Bloom 精簡檔，讓前端自動辨識學生/組別/層級/題序）
 COLMAP = {
     "組別": "組別",
@@ -55,8 +58,13 @@ def load_clean() -> pd.DataFrame:
     df = raw[list(keep)].rename(columns=keep)
     if SCORE_FROM in raw.columns:
         df["SOLO分數"] = pd.to_numeric(raw[SCORE_FROM], errors="coerce")
+    # 原始活頁簿這兩欄是 Excel 公式；openpyxl 寫回後公式仍在但快取值可能為空。
+    # 依原公式直接由固定 SOLO 分數恢復，避免把空快取誤當缺失。
+    df["是否有效認知"] = (df["SOLO分數"] > 0).astype(int)
+    df["是否關聯以上"] = (df["SOLO分數"] >= 3).astype(int)
     # 去除沒有學生或 SOLO 層級的列
     df = df.dropna(subset=["學生", "SOLO層級"])
+    df = df[~df["學生"].isin(EXCLUDED_STUDENTS)]
     df["SOLO層級"] = pd.to_numeric(df["SOLO層級"], errors="coerce").astype("Int64")
     df["題序"] = pd.to_numeric(df["題序"], errors="coerce")
     df = df.dropna(subset=["SOLO層級", "題序"])
@@ -86,7 +94,7 @@ def student_diagnostics(df: pd.DataFrame) -> pd.DataFrame:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--drop", nargs="*", default=[], help="要剔除的學生名稱")
+    ap.add_argument("--drop", nargs="*", default=[], help="除正式排除名單外，額外剔除的學生名稱")
     args = ap.parse_args(argv)
 
     df = load_clean()

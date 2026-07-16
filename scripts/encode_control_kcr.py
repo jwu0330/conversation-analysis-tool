@@ -18,6 +18,7 @@ from openpyxl import load_workbook
 ROOT = Path(__file__).resolve().parents[1]
 RAW_DIR = ROOT / "data" / "對話分析" / "原始檔"
 CONTROL_SHEET_INDEX = 6
+SOLO_COMBINED_SHEET_INDEX = 10
 MAX_KP = 3
 
 KP_ORDER = [
@@ -143,6 +144,49 @@ def write_sheet(path: Path, encoded: pd.DataFrame) -> None:
     wb.save(path)
 
 
+def write_solo_combined(path: Path, encoded: pd.DataFrame) -> None:
+    """把同一批對照組 KCR 同步到 SOLO 的整合逐題表，不改變列數或其他欄位。"""
+    wb = load_workbook(path)
+    ws = wb.worksheets[SOLO_COMBINED_SHEET_INDEX]
+    headers = {cell.value: cell.column for cell in ws[3] if cell.value}
+    # 同一人可能重複相同問句，以出現次序配對，避免覆蓋錯列。
+    def norm(value) -> str:
+        return "".join(str(value).split())
+
+    queues: dict[tuple[str, str], list[tuple[str, str, str, str | None]]] = {}
+    for _, row in encoded.iterrows():
+        key = (str(row["CUserID"]), norm(row["UserQuestion"]))
+        queues.setdefault(key, []).append((
+            row["KnowledgePointStatus"], row["CorrectnessStatus"], row["RepetitionStatus"],
+            None if pd.isna(row["InvolvedKnowledgeLabels"]) else row["InvolvedKnowledgeLabels"],
+        ))
+    used: dict[tuple[str, str], int] = {}
+    for excel_row in range(4, ws.max_row + 1):
+        if ws.cell(excel_row, headers["組別"]).value != "對照組":
+            continue
+        key = (
+            str(ws.cell(excel_row, headers["CUserID"]).value),
+            norm(ws.cell(excel_row, headers["UserQuestion"]).value),
+        )
+        pos = used.get(key, 0)
+        if key not in queues or pos >= len(queues[key]):
+            raise ValueError(f"SOLO 整合表找不到對照組 KCR 配對：row={excel_row}, key={key}")
+        values = queues[key][pos]
+        used[key] = pos + 1
+        for name, value in zip(
+            ("KnowledgePointStatus", "CorrectnessStatus", "RepetitionStatus", "InvolvedKnowledgeLabels"), values
+        ):
+            ws.cell(excel_row, headers[name]).value = value
+    # SOLO_Score 是 SOLO_Level 的固定量化，不依樣本或模型估計；明確寫值以避免
+    # Excel 公式快取在 openpyxl 儲存後消失。
+    score_map = {"P": 0, "U": 1, "M": 2, "R": 3, "EA": 4}
+    for excel_row in range(4, ws.max_row + 1):
+        level = ws.cell(excel_row, headers["SOLO_Level"]).value
+        if level in score_map:
+            ws.cell(excel_row, headers["SOLO_Score"]).value = score_map[level]
+    wb.save(path)
+
+
 def validate(d: pd.DataFrame) -> None:
     k, c, r, labels = d.columns[7], d.columns[8], d.columns[9], d.columns[10]
     counts = d[labels].map(split_labels).map(len)
@@ -164,6 +208,8 @@ def main() -> int:
         encoded = encode_frame(frame)
         validate(encoded)
         write_sheet(path, encoded)
+        if path.name.startswith("SOLO_"):
+            write_solo_combined(path, encoded)
         reference = encoded
         print(f"已更新：{path.name}（{len(encoded)} 題）")
     assert reference is not None
