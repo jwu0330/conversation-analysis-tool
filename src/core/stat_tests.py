@@ -51,7 +51,7 @@ def one_way_anova(
     """一因子變異數分析（One-way ANOVA）：比較 3 組（含）以上的平均數是否不同。
 
     回傳 F、df、p、效果量 η²，附各組描述、Levene 同質性、Tukey HSD 事後比較。
-    （2 組時 ANOVA 等同 t 檢定，仍可跑；本工具建議 2 組直接用 t 檢定。）
+    本工具將 2 組比較固定交給 t 檢定；ANOVA 僅接受 3 組以上，避免方法混淆。
     """
     data = df[[value_col, group_col]].dropna().copy()
     data[value_col] = pd.to_numeric(data[value_col], errors="coerce")
@@ -60,11 +60,11 @@ def one_way_anova(
     levels = sorted(data[group_col].unique())
     k = len(levels)
 
-    if k < 2:
+    if k < 3:
         return TestResult(
             method="一因子 ANOVA", applicable="一個 3 組以上的分類欄 + 一個數值欄",
             statistic=float("nan"), p_value=float("nan"),
-            warnings=[f"分類欄只有 {k} 組，ANOVA 需至少 2 組。"],
+            warnings=[f"分組基準只有 {k} 組；2 組請用 t 檢定，ANOVA 需至少 3 組。"],
             interpretation="組數不足，無法進行 ANOVA。", alpha=alpha,
         )
     samples = [data.loc[data[group_col] == g, value_col].to_numpy(float) for g in levels]

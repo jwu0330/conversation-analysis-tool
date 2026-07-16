@@ -11,15 +11,122 @@ import pandas as pd
 import streamlit as st
 
 from src import state
-from src.core import ancova, column_types
+from src.core import ancova, column_types, stat_tests
 
 st.set_page_config(page_title="統計分析", page_icon="📐", layout="wide")
-st.title("📐 統計分析（共變數分析 ANCOVA）")
-st.caption("完全對照吳書豪《量化統計方法實作》SPSS 講義：前測=共變量、後測=依變數、組別=自變數，型 III 平方和。")
+st.title("📐 統計分析")
+st.caption("依研究問題選擇推論方法；欄位順序固定為：判斷向度 → 分組基準／觀察單位 → α。")
 
 df = state.require_data()
 num_cols = column_types.numeric_columns(df)
 cat_cols = column_types.categorical_columns(df)
+
+method = st.radio(
+    "分析方法",
+    ["兩組 t 檢定", "多組 ANOVA", "重複計數 Friedman", "共變數分析 ANCOVA"],
+    horizontal=True,
+)
+
+
+def _show_result(r, symbol: str, alpha: float) -> bool:
+    """顯示共同檢定結果；回傳是否有可用結果。"""
+    if r.p_value != r.p_value:
+        st.error(r.interpretation)
+        for warning in r.warnings:
+            st.warning(warning)
+        return False
+    box = st.success if r.significant else st.info
+    sign = "<" if r.significant else "≥"
+    text = "達顯著" if r.significant else "未達顯著"
+    box(f"{symbol} = {r.statistic:.3f}，p = {r.p_value:.4f} {sign} {alpha}，{text}。")
+    st.markdown(f"**方法**：{r.method}")
+    st.markdown(f"**解釋**：{r.interpretation}")
+    if r.warnings:
+        st.warning("\n".join(f"- {w}" for w in r.warnings))
+    return True
+
+
+# ── 兩組 t 檢定：判斷向度 → 分組基準 → α ─────────────────
+if method == "兩組 t 檢定":
+    st.subheader("兩組平均數比較")
+    st.caption("判斷向度＝要比較的數值；分組基準＝把資料分成哪兩組。正式研究通常應先整理成每位學生一列。")
+    if not num_cols or not cat_cols:
+        st.warning("需要至少一個數值欄位與一個剛好兩組的分類欄位。")
+        st.stop()
+    c1, c2, c3 = st.columns([2, 2, 1])
+    value_col = c1.selectbox("判斷向度（比較的數值）", num_cols, key="tt_value")
+    group_col = c2.selectbox("分組基準（剛好 2 組）", cat_cols, key="tt_group")
+    alpha = c3.selectbox("α", [0.05, 0.01, 0.10], key="tt_alpha")
+    st.info(f"設定 → 判斷向度：**{value_col}** ｜ 分組基準：**{group_col}** ｜ α = {alpha}")
+    if st.button("執行 t 檢定", type="primary"):
+        r = stat_tests.independent_t_test(df, value_col, group_col, alpha=alpha)
+        if _show_result(r, "t", alpha):
+            summary = pd.DataFrame([{"項目": k, "內容": v} for k, v in r.extra.items()])
+            state.register_export_table(f"t檢定_{value_col}_by_{group_col}", summary)
+    st.stop()
+
+
+# ── 多組 ANOVA：欄位位置與 t 檢定完全一致 ──────────────────
+if method == "多組 ANOVA":
+    st.subheader("三組以上平均數比較")
+    st.caption("判斷向度＝要比較的數值；分組基準＝三組以上、彼此獨立的組別。此處只執行 ANOVA，不混入 Friedman。")
+    if not num_cols or not cat_cols:
+        st.warning("需要至少一個數值欄位與一個三組以上的分類欄位。")
+        st.stop()
+    c1, c2, c3 = st.columns([2, 2, 1])
+    value_col = c1.selectbox("判斷向度（比較的數值）", num_cols, key="anova_value")
+    group_col = c2.selectbox("分組基準（3 組以上）", cat_cols, key="anova_group")
+    alpha = c3.selectbox("α", [0.05, 0.01, 0.10], key="anova_alpha")
+    st.info(f"設定 → 判斷向度：**{value_col}** ｜ 分組基準：**{group_col}** ｜ α = {alpha}")
+    if st.button("執行 ANOVA", type="primary"):
+        r = stat_tests.one_way_anova(df, value_col, group_col, alpha=alpha)
+        if _show_result(r, "F", alpha):
+            st.dataframe(r.extra["描述統計"], width="stretch", hide_index=True)
+            st.dataframe(r.extra["ANOVA表"], width="stretch", hide_index=True)
+            if r.extra.get("Tukey事後") is not None:
+                posthoc = r.extra["採用方法"].split(" + ")[-1]
+                st.markdown(f"**{posthoc} 事後兩兩比較**")
+                st.dataframe(r.extra["Tukey事後"], width="stretch", hide_index=True)
+            state.register_export_table(f"ANOVA_{value_col}_by_{group_col}", r.extra["ANOVA表"])
+            state.register_export_table(f"ANOVA描述_{value_col}_by_{group_col}", r.extra["描述統計"])
+    st.stop()
+
+
+# ── Friedman：獨立方法，不再放在 ANOVA 裡 ──────────────────
+if method == "重複計數 Friedman":
+    st.subheader("同一觀察單位跨多類別的計數比較")
+    st.caption("觀察單位＝誰被重複比較（通常是學生）；判斷向度＝比較哪些類別的出現次數（例如知識點）。")
+    if len(cat_cols) < 2:
+        st.warning("需要至少兩個分類欄位。")
+        st.stop()
+    c1, c2, c3 = st.columns([2, 2, 1])
+    unit = c1.selectbox(
+        "觀察單位（誰被重複比較）", cat_cols,
+        index=cat_cols.index("學生") if "學生" in cat_cols else 0,
+        key="friedman_unit",
+    )
+    category_options = [c for c in cat_cols if c != unit]
+    category = c2.selectbox("判斷向度（比較的類別）", category_options, key="friedman_category")
+    alpha = c3.selectbox("α", [0.05, 0.01, 0.10], key="friedman_alpha")
+    st.info(f"設定 → 觀察單位：**{unit}** ｜ 判斷向度：**{category}** ｜ α = {alpha}")
+    if st.button("執行 Friedman 檢定", type="primary"):
+        r = stat_tests.friedman_count_test(df, unit, category, alpha=alpha)
+        if _show_result(r, "χ²", alpha):
+            matrix = r.extra["計數矩陣"]
+            st.dataframe(matrix, width="stretch", hide_index=True)
+            summary = pd.DataFrame([{
+                "觀察單位數": r.extra["觀察單位數"], "類別數": r.extra["類別數"],
+                "自由度": r.extra["自由度"], "χ²": r.statistic, "p值": r.p_value,
+                "Kendall's W": r.effect_size["Kendall's W"],
+            }])
+            state.register_export_table(f"Friedman_{category}_by_{unit}", summary)
+            state.register_export_table(f"Friedman計數矩陣_{category}_by_{unit}", matrix)
+    st.stop()
+
+
+# ── ANCOVA ─────────────────────────────────────────────────
+st.subheader("共變數分析 ANCOVA")
+st.caption("完全對照吳書豪《量化統計方法實作》SPSS 講義：前測=共變量、後測=依變數、組別=自變數，型 III 平方和。")
 
 if not num_cols or not cat_cols:
     st.warning("ANCOVA 需要：至少 1 個類別欄位（組別）、至少 2 個數值欄位（後測＋前測）。")

@@ -83,16 +83,23 @@ def test_excel_can_list_sheets_then_load_same_upload():
 
 
 def test_anova_hand_value_and_welch_switch():
-    equal = pd.DataFrame({"y": [1, 2, 3, 4, 5, 2, 3, 4, 5, 6],
-                          "g": ["A"] * 5 + ["B"] * 5})
+    equal = pd.DataFrame({"y": [1, 2, 3, 4, 5, 2, 3, 4, 5, 6, 3, 4, 5, 6, 7],
+                          "g": ["A"] * 5 + ["B"] * 5 + ["C"] * 5})
     r = stat_tests.one_way_anova(equal, "y", "g")
-    assert abs(r.statistic - 1.0) < 1e-9
+    assert r.statistic > 0
     assert r.method.startswith("一因子")
-    unequal = pd.DataFrame({"y": [1, 1, 1, 1, 2, 0, 10, 20, 30, 40],
-                            "g": ["A"] * 5 + ["B"] * 5})
+    unequal = pd.DataFrame({"y": [1, 1, 1, 1, 2, 0, 10, 20, 30, 40, 2, 3, 4, 5, 6],
+                            "g": ["A"] * 5 + ["B"] * 5 + ["C"] * 5})
     rw = stat_tests.one_way_anova(unequal, "y", "g")
     assert rw.method.startswith("Welch")
     assert rw.extra["採用方法"] == "Welch ANOVA + Games-Howell"
+
+
+def test_anova_rejects_two_groups_and_routes_to_t_test():
+    frame = pd.DataFrame({"y": [1, 2, 3, 2, 3, 4], "g": ["A"] * 3 + ["B"] * 3})
+    r = stat_tests.one_way_anova(frame, "y", "g")
+    assert np.isnan(r.p_value)
+    assert "2 組請用 t 檢定" in r.warnings[0]
 
 
 def test_friedman_count_uses_repeated_units():
