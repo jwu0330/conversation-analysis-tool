@@ -21,6 +21,75 @@ df = state.require_data()
 num_cols = column_types.numeric_columns(df)
 cat_cols = column_types.categorical_columns(df)
 
+
+def _student_column() -> str | None:
+    return next((c for c in ["學生ID", "學生", "student_id", "student"] if c in df.columns), None)
+
+
+def _numeric_outcomes() -> list[str]:
+    """偵測可穩定轉成數字的欄位，包含 Excel 中以文字儲存的數字。"""
+    found: list[str] = []
+    for col in df.columns:
+        source = df[col].dropna()
+        if source.empty:
+            continue
+        parsed = pd.to_numeric(source, errors="coerce")
+        if parsed.notna().sum() >= 2 and parsed.notna().mean() >= 0.9:
+            found.append(col)
+    return found
+
+
+def _group_candidates(min_groups: int, max_groups: int | None = None) -> list[str]:
+    student = _student_column()
+    choices: list[str] = []
+    for col in df.columns:
+        if col == student:
+            continue
+        # 組間檢定要求每位學生只能屬於一組；K/C/R 等逐題狀態不可拿來分組。
+        if student and df[[student, col]].dropna().groupby(student)[col].nunique().max() > 1:
+            continue
+        counts = df[col].dropna().value_counts()
+        k = len(counts)
+        if k < min_groups or (max_groups is not None and k > max_groups):
+            continue
+        if len(counts) and int(counts.min()) >= 2:
+            choices.append(col)
+    return choices
+
+
+def _outcome_options() -> tuple[list[str], dict[str, str]]:
+    options = [f"raw::{c}" for c in _numeric_outcomes()]
+    labels = {f"raw::{c}": f"原始數值：{c}" for c in _numeric_outcomes()}
+    kcr = kcr_metrics.student_metrics(df)
+    for key, label in kcr_metrics.METRIC_LABELS.items():
+        if key in kcr and kcr[key].notna().any():
+            option = f"kcr::{key}"
+            options.append(option)
+            labels[option] = f"衍生指標：{label}"
+    return options, labels
+
+
+def _analysis_frame(option: str, group_col: str) -> tuple[pd.DataFrame, str]:
+    """依觀察單位整理；同一學生有多列時先取學生平均。"""
+    student = _student_column()
+    if option.startswith("kcr::"):
+        value_col = option.split("::", 1)[1]
+        metrics = kcr_metrics.student_metrics(df, student_col=student, group_col=group_col)
+        metrics = metrics.rename(columns={"組別": "分析組別", value_col: "分析值"})
+        return metrics, "分析值"
+
+    source_col = option.split("::", 1)[1]
+    work = pd.DataFrame({
+        "分析組別": df[group_col],
+        "分析值": pd.to_numeric(df[source_col], errors="coerce"),
+    })
+    if student:
+        work[student] = df[student]
+        work = work.dropna(subset=[student, "分析組別"]).groupby(
+            [student, "分析組別"], as_index=False
+        )["分析值"].mean()
+    return work, "分析值"
+
 method = st.radio(
     "分析方法",
     ["兩組 t 檢定", "多組 ANOVA", "重複計數 Friedman", "共變數分析 ANCOVA"],
@@ -49,26 +118,27 @@ def _show_result(r, symbol: str, alpha: float) -> bool:
 # ── 兩組 t 檢定：判斷向度 → 分組基準 → α ─────────────────
 if method == "兩組 t 檢定":
     st.subheader("兩組平均數比較")
-    st.caption("觀測向度＝K、C 或 R；系統先依題目轉碼，再彙整成每位學生一列，避免把同一學生的多次提問誤當成獨立樣本。")
-    metric_df = kcr_metrics.student_metrics(df)
-    if metric_df.empty:
-        st.warning("目前資料缺少學生、組別或 K/C/R 欄位，無法建立學生層級比較指標。")
+    st.caption("觀測向度會自動列出所有可解析的數值欄位，並附加 K/C/R 衍生指標；同一學生有多列時先彙整為學生平均。")
+    outcomes, outcome_labels = _outcome_options()
+    groups_2 = _group_candidates(2, 2)
+    if not outcomes or not groups_2:
+        st.warning("需要至少一個可解析的數值／KCR 指標，以及一個剛好兩組且每組至少兩筆的分組欄位。")
         st.stop()
     c1, c2, c3 = st.columns([2, 2, 1])
-    value_col = c1.selectbox(
-        "觀測向度（學生層級）", ["K", "C", "R"],
-        format_func=lambda key: kcr_metrics.METRIC_LABELS[key], key="tt_value",
+    value_option = c1.selectbox(
+        "觀測向度", outcomes, format_func=lambda key: outcome_labels[key], key="tt_value",
     )
-    group_col = "組別"
-    c2.selectbox("分組基準（固定）", [group_col], disabled=True, key="tt_group")
+    default_group = groups_2.index("組別") if "組別" in groups_2 else 0
+    group_col = c2.selectbox("分組基準（剛好 2 組）", groups_2, index=default_group, key="tt_group")
     alpha = c3.selectbox("α", [0.05, 0.01, 0.10], key="tt_alpha")
-    valid_n = int(metric_df[value_col].notna().sum())
+    analysis_df, value_col = _analysis_frame(value_option, group_col)
+    valid_n = int(analysis_df[value_col].notna().sum())
     st.info(
-        f"設定 → 觀測向度：**{kcr_metrics.METRIC_LABELS[value_col]}** ｜ "
-        f"分組基準：**實驗組／對照組** ｜ 有效學生：**{valid_n}** ｜ α = {alpha}"
+        f"設定 → 觀測向度：**{outcome_labels[value_option]}** ｜ "
+        f"分組基準：**{group_col}** ｜ 有效觀察單位：**{valid_n}** ｜ α = {alpha}"
     )
     if st.button("執行 t 檢定", type="primary"):
-        r = stat_tests.independent_t_test(metric_df, value_col, group_col, alpha=alpha)
+        r = stat_tests.independent_t_test(analysis_df, value_col, "分析組別", alpha=alpha)
         if _show_result(r, "t", alpha):
             summary = pd.DataFrame([{"項目": k, "內容": v} for k, v in r.extra.items()])
             state.register_export_table(f"t檢定_{value_col}_by_組別", summary)
@@ -78,17 +148,23 @@ if method == "兩組 t 檢定":
 # ── 多組 ANOVA：欄位位置與 t 檢定完全一致 ──────────────────
 if method == "多組 ANOVA":
     st.subheader("三組以上平均數比較")
-    st.caption("判斷向度＝要比較的數值；分組基準＝三組以上、彼此獨立的組別。此處只執行 ANOVA，不混入 Friedman。")
-    if not num_cols or not cat_cols:
-        st.warning("需要至少一個數值欄位與一個三組以上的分類欄位。")
+    st.caption("觀測向度與 t 檢定共用相同的自動偵測規則；分組基準必須有三組以上，且每組至少兩筆。")
+    outcomes, outcome_labels = _outcome_options()
+    groups_3 = _group_candidates(3, 20)
+    if not outcomes or not groups_3:
+        st.warning("目前資料沒有可用的三組以上分組欄位；兩組資料請使用 t 檢定。")
         st.stop()
     c1, c2, c3 = st.columns([2, 2, 1])
-    value_col = c1.selectbox("判斷向度（比較的數值）", num_cols, key="anova_value")
-    group_col = c2.selectbox("分組基準（3 組以上）", cat_cols, key="anova_group")
+    value_option = c1.selectbox(
+        "觀測向度", outcomes, format_func=lambda key: outcome_labels[key], key="anova_value"
+    )
+    group_col = c2.selectbox("分組基準（3–20 組）", groups_3, key="anova_group")
     alpha = c3.selectbox("α", [0.05, 0.01, 0.10], key="anova_alpha")
-    st.info(f"設定 → 判斷向度：**{value_col}** ｜ 分組基準：**{group_col}** ｜ α = {alpha}")
+    analysis_df, value_col = _analysis_frame(value_option, group_col)
+    valid_n = int(analysis_df[value_col].notna().sum())
+    st.info(f"設定 → 觀測向度：**{outcome_labels[value_option]}** ｜ 分組基準：**{group_col}** ｜ 有效觀察單位：**{valid_n}** ｜ α = {alpha}")
     if st.button("執行 ANOVA", type="primary"):
-        r = stat_tests.one_way_anova(df, value_col, group_col, alpha=alpha)
+        r = stat_tests.one_way_anova(analysis_df, value_col, "分析組別", alpha=alpha)
         if _show_result(r, "F", alpha):
             st.dataframe(r.extra["描述統計"], width="stretch", hide_index=True)
             st.dataframe(r.extra["ANOVA表"], width="stretch", hide_index=True)

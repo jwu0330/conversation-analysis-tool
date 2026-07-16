@@ -15,10 +15,14 @@ def _first_column(df: pd.DataFrame, names: list[str]) -> str | None:
     return next((name for name in names if name in df.columns), None)
 
 
-def student_metrics(df: pd.DataFrame) -> pd.DataFrame:
+def student_metrics(
+    df: pd.DataFrame,
+    student_col: str | None = None,
+    group_col: str | None = None,
+) -> pd.DataFrame:
     """回傳每位學生一列的組別與 K/C/R 平均值；無法判定者保留缺值。"""
-    student = _first_column(df, ["學生ID", "學生", "student_id", "student"])
-    group = _first_column(df, ["組別", "group", "Group"])
+    student = student_col or _first_column(df, ["學生ID", "學生", "student_id", "student"])
+    group = group_col or _first_column(df, ["組別", "group", "Group"])
     if student is None or group is None:
         return pd.DataFrame(columns=["學生", "組別", "K", "C", "R"])
 
