@@ -99,7 +99,12 @@ st.caption(
 trans = seq.transitions(work)
 trans_shown = trans[trans["次數"] >= min_edge]
 
-tab_seq, tab_trans, tab_trend = st.tabs(["① 個人序列", "② 轉移分析", "③ 趨勢分析"])
+tabs = st.tabs(
+    ["① 個人序列", "② 轉移分析"]
+    + (["③ 層級趨勢"] if node_is_ordinal else [])
+)
+tab_seq, tab_trans = tabs[:2]
+tab_trend = tabs[2] if node_is_ordinal else None
 
 # ══ ① 個人序列 ═══════════════════════════════════════════
 with tab_seq:
@@ -185,10 +190,11 @@ with tab_trans:
             state.register_export_table("序列_高低階轉移", highlow)
 
 # ══ ③ 趨勢分析（題序流動 + 迴歸軌跡）══════════════════════
+if tab_trend is None:
+    st.success("序列分析組內比較完成。圖表右上角可下載 PNG，表格可由匯出中心輸出。")
+    st.stop()
+
 with tab_trend:
-    if not node_is_ordinal:
-        st.info("知識點與知識點類別是名目類別，代碼大小沒有高低意義，因此不計算平均代碼、線性趨勢或高低階轉換。")
-        st.stop()
     st.markdown("#### 題序流動：各組每一題的平均節點碼（僅層級型節點有意義）")
     profile = seq.position_profile(work)
     st.plotly_chart(
