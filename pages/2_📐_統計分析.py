@@ -124,7 +124,7 @@ if method == "兩組 t 檢定":
     if not outcomes or not groups_2:
         st.warning("需要至少一個可解析的數值／KCR 指標，以及一個剛好兩組且每組至少兩筆的分組欄位。")
         st.stop()
-    c1, c2, c3 = st.columns([2, 2, 1])
+    c1, c2, c3 = st.columns([3.2, 2, 1])
     value_option = c1.selectbox(
         "觀測向度", outcomes, format_func=lambda key: outcome_labels[key], key="tt_value",
     )
@@ -154,7 +154,7 @@ if method == "多組 ANOVA":
     if not outcomes or not groups_3:
         st.warning("目前資料沒有可用的三組以上分組欄位；兩組資料請使用 t 檢定。")
         st.stop()
-    c1, c2, c3 = st.columns([2, 2, 1])
+    c1, c2, c3 = st.columns([3.2, 2, 1])
     value_option = c1.selectbox(
         "觀測向度", outcomes, format_func=lambda key: outcome_labels[key], key="anova_value"
     )
