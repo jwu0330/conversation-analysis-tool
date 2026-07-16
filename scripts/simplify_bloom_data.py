@@ -18,8 +18,8 @@ import sys
 import pandas as pd
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(ROOT, "data", "Bloom_質性轉量化_分析整理總表.xlsx")
-OUT = os.path.join(ROOT, "data", "Bloom_序列分析_精簡.xlsx")
+SRC = os.path.join(ROOT, "data", "對話分析", "原始檔", "Bloom_質性轉量化_分析整理總表.xlsx")
+OUT = os.path.join(ROOT, "data", "對話分析", "Bloom_序列分析_精簡.xlsx")
 SHEETS = ["06_對照逐題結果", "07_實驗逐題結果"]
 
 # 原始欄位 → 精簡欄位
@@ -34,6 +34,9 @@ COLMAP = {
     "Bloom_Level_Name": "Bloom層級名稱",
     "Bloom_Score": "Bloom分數",
     "InvolvedKnowledgeLabels": "知識點",
+    "KnowledgePointStatus": "K知識點狀態",
+    "CorrectnessStatus": "C正確性",
+    "RepetitionStatus": "R重複性",
     "Is_Valid_Cognitive": "是否有效認知",
 }
 

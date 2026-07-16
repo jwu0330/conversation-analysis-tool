@@ -38,6 +38,9 @@ COLMAP = {
     "SOLO_Level": "SOLO字母",           # P/U/M/R/EA
     "SOLO_Level_Name": "SOLO層級名稱",
     "InvolvedKnowledgeLabels": "知識點",
+    "KnowledgePointStatus": "K知識點狀態",
+    "CorrectnessStatus": "C正確性",
+    "RepetitionStatus": "R重複性",
     "Is_Valid_SOLO": "是否有效認知",
     "Is_Relational_or_Higher": "是否關聯以上",
     "Needs_Manual_Review": "需人工複核",

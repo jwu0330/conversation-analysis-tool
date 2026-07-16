@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """由真實對話資料 Bloom_序列分析_精簡.xlsx 產生「知識點涵蓋」兩份資料。
 
-  A. 知識點_原始版_467.xlsx    467 筆、對照組知識點已逐題語意補齊（給 t 檢定/SOLO 等其他分析，統計不重複）
+  A. 知識點_原始版_467.xlsx    保留相容檔名；內容為目前全部有效學生資料（統計不重複）
   B. 知識點_序列展開版.xlsx    一題多知識點拆成多筆、每個知識點各算一次、序列重新編序（專給知識點序列分析）
 
-對照組原本知識點欄全空，本腳本用「逐題語意標註」補齊（見 CONTROL_KP）。
-實驗組沿用原本已標的知識點。節點欄＝知識點層級(1–15)，序列分析頁會自動抓（欄名含「層級」）。
+兩組均沿用 KCR 編碼後的知識點欄。節點欄＝知識點層級(1–15)，
+序列分析頁會自動抓（欄名含「層級」）。
 """
 from __future__ import annotations
 import os
@@ -15,6 +15,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "data", "對話分析", "Bloom_序列分析_精簡.xlsx")
 OUT_DIR = os.path.join(ROOT, "data", "對話分析")
 
+# K/C/R 三向度欄位（來源精簡檔已由人工編碼、兩組齊備，這裡直接沿用其欄名）：
+#   K知識點狀態 = 提問涉及 單一/多個/沒有 知識點；
+#   C正確性     = 提問前提是否正確；
+#   R重複性     = 新提問或重複提問。
+KCR_COLS = ["K知識點狀態", "C正確性", "R重複性"]
+
 # 15 知識點 → 編號
 KP_NUM = {
     "檔案傳輸": 1, "FTP": 2, "P2P": 3, "BBS": 4, "Telnet": 5, "遠端登入": 6,
@@ -22,7 +28,8 @@ KP_NUM = {
     "網路電話": 13, "VoIP": 14, "Skype": 15,
 }
 
-# 對照組逐題語意標註（key＝原始列索引 272–466；空清單＝非 15 知識點之題目，如 自由軟體/URL/TLS）
+# 舊版逐題對照表僅留作歷史稽核；現行流程直接讀取 encode_control_kcr.py
+# 已寫回原始 Excel 的 KCR 與知識點，不再使用 CONTROL_KP 產生結果。
 CONTROL_KP = {
     272: ["P2P", "FTP"], 273: ["Telnet", "遠端登入"], 274: ["遠端登入"], 275: ["BBS"],
     276: ["電子郵件", "SMTP", "POP3", "IMAP"], 277: ["電子郵件", "SMTP", "POP3"],
@@ -80,16 +87,19 @@ def split_kp(v) -> list[str]:
 def main():
     df = pd.read_excel(SRC)
     kp_lists, sources = [], []
-    for idx, r in df.iterrows():
-        if r["組別"] == "實驗組":
-            kps = split_kp(r["知識點"]); src = "實驗組_原標"
-        else:
-            kps = [k for k in CONTROL_KP.get(idx, []) if k in KP_NUM]; src = "對照組_語意標"
+    for _, r in df.iterrows():
+        kps = split_kp(r["知識點"])
+        src = "實驗組_原標" if r["組別"] == "實驗組" else "對照組_KCR語意標"
         kp_lists.append(kps); sources.append(src)
     df["_kps"] = kp_lists
     df["標註來源"] = sources
 
-    # ── A. 原始版 467（補齊、不展開）──
+    # ── K/C/R 三向度：來源精簡檔兩組皆已編碼齊備，直接沿用；缺欄才補空欄 ──
+    for col in KCR_COLS:
+        if col not in df.columns:
+            df[col] = ""
+
+    # ── A. 原始版（補齊、不展開；檔名保留 467 以相容既有操作）──
     a = df.copy()
     a["知識點"] = a["_kps"].map(lambda ks: " | ".join(ks))
     a["知識點數"] = a["_kps"].map(len)
@@ -108,6 +118,8 @@ def main():
                     "組別": grp, "學生": sid, "學生ID": r["學生ID"],
                     "題序": seq_no, "原題序": r["題序"], "時間": r.get("時間"),
                     "提問": r["提問"], "知識點": kp, "知識點層級": KP_NUM[kp],
+                    # K/C/R 為題目層級屬性，展開後每個知識點列各自帶同一題的值
+                    **{c: r.get(c, "") for c in KCR_COLS},
                     "是否有效認知": r.get("是否有效認知"), "標註來源": r["標註來源"],
                 })  # 不放 Bloom 欄：展開版專供知識點序列，避免搶到節點欄
     b = pd.DataFrame(rows)
@@ -118,7 +130,7 @@ def main():
     print("A 原始版 :", a_path, "| 列數:", len(a))
     print("   對照組已補齊知識點筆數:", (df[df['組別']=='對照組']['_kps'].map(len) > 0).sum(), "/",
           (df['組別']=='對照組').sum())
-    print("B 展開版 :", b_path, "| 列數:", len(b), "（原 467 → 展開）")
+    print("B 展開版 :", b_path, "| 列數:", len(b), f"（原 {len(a)} → 展開）")
     for grp, gg in b.groupby("組別"):
         print(f"   {grp}: 展開列 {len(gg)}, 涵蓋知識點 {gg['知識點'].nunique()} 種")
     print("\n各組知識點涵蓋（展開後次數）:")
