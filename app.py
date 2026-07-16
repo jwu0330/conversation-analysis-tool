@@ -72,7 +72,7 @@ with tab_upload:
         sheet_name: str | int = 0
         if is_excel:
             try:
-                sheets = data_loader.get_excel_sheets(uploaded)
+                sheets = data_loader.get_excel_sheets(uploaded, filename)
             except Exception as err:  # noqa: BLE001
                 st.error(f"讀取 Excel 工作表失敗：{err}")
                 st.stop()

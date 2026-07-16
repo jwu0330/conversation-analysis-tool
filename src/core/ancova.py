@@ -185,7 +185,7 @@ def run_ancova(
     aov_int = anova_lm(model_int, typ=3)
     inter_rows = [ix for ix in aov_int.index if ":" in ix]
     slope_tbl = (
-        aov_int.loc[inter_rows, ["F", "PR(>F)"]]
+        aov_int.loc[inter_rows, ["df", "F", "PR(>F)"]]
         .rename(columns={"PR(>F)": "p值"}).round(4).reset_index()
         .rename(columns={"index": "交乘項（組別×共變量）"})
     )
@@ -314,7 +314,16 @@ def run_ancova(
 
     # === 文章寫法（中/英，套講義模板）===
     lev_txt_en = _p_apa(lev_p)
-    slope_txt_en = _p_apa(slope_min_p)
+    slope_reports_en = "; ".join(
+        f"{r['交乘項（組別×共變量）']}: F({int(r['df'])}, {int(df_resid)}) = {float(r['F']):.2f}, "
+        f"{_p_apa(float(r['p值']))}"
+        for _, r in slope_tbl.iterrows()
+    )
+    slope_reports_zh = "；".join(
+        f"{r['交乘項（組別×共變量）']}：F({int(r['df'])}, {int(df_resid)}) = {float(r['F']):.2f}，"
+        f"{_p_apa(float(r['p值']))}"
+        for _, r in slope_tbl.iterrows()
+    )
     grp_txt_en = _p_apa(p_grp)
     adj_map = {g: adj[adj[group] == g].iloc[0] for g in groups}
     parts_en = ", ".join(
@@ -326,7 +335,7 @@ def run_ancova(
         f"The Levene's test of determining homogeneity of variance was "
         f"{'not violated' if levene['同質(p≥α)'] else 'violated'} (F = {levene['F']}, {lev_txt_en}). "
         f"In addition, the homogeneity of regression slopes was "
-        f"{'confirmed' if slope_ok else 'NOT confirmed'} (F = {slope_tbl['F'].iloc[0] if not slope_tbl.empty else float('nan')}, {slope_txt_en}), "
+        f"{'confirmed' if slope_ok else 'NOT confirmed'} ({slope_reports_en}), "
         f"indicating that it was {'appropriate' if slope_ok else 'INAPPROPRIATE'} to employ ANCOVA. "
         f"The adjusted means and standard error were {parts_en}. "
         f"The post-test scores were {'significantly different' if p_grp < alpha else 'not significantly different'} "
@@ -341,7 +350,7 @@ def run_ancova(
         f"本研究採用 ANCOVA 檢驗各組後測分數是否有顯著差異。"
         f"Levene 檢定顯示變異數{'相等' if levene['同質(p≥α)'] else '不相等'}"
         f"（F = {levene['F']}, {lev_txt_en.replace('p','p')}）；"
-        f"組內迴歸係數同質性檢定（交乘項 F = {slope_tbl['F'].iloc[0] if not slope_tbl.empty else float('nan')}, {slope_txt_en}），"
+        f"組內迴歸係數同質性檢定（{slope_reports_zh}），"
         f"{'符合' if slope_ok else '不符合'} ANCOVA 前提。"
         f"調整後平均數與標準誤：{parts_zh}。"
         f"各組後測分數{'有' if p_grp < alpha else '無'}顯著差異"

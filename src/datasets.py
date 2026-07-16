@@ -15,7 +15,8 @@ from src.core import data_loader
 # 專案根目錄（本檔位於 src/datasets.py）
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # 序列/對話分析用的內建資料來源（量化分析資料另放 data/量化/，由準實驗模組讀取）
-BUILTIN_DIRS = ["sample_data", os.path.join("data", "對話分析")]
+# 畫面只列正式資料；sample_data 僅供自動化測試與開發使用。
+BUILTIN_DIRS = [os.path.join("data", "對話分析")]
 _CN_NUM = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
 
 # 預設「實際資料」：網頁一開／重新整理就自動載入這份，免手動上傳。
@@ -41,6 +42,8 @@ def discover_datasets() -> list[dict]:
             + glob.glob(os.path.join(folder, "*.csv"))
         )
         for path in files:
+            if os.path.basename(path).startswith("~$"):
+                continue  # Excel 開啟時產生的鎖定暫存檔，不可列入資料選單
             stem = os.path.splitext(os.path.basename(path))[0]
             key = (sub, stem)
             is_excel = data_loader.is_excel(path)
@@ -57,7 +60,7 @@ def discover_datasets() -> list[dict]:
         num = _CN_NUM[i] if i < len(_CN_NUM) else str(i + 1)
         datasets.append(
             {
-                "label": f"測試資料{num}：{os.path.basename(path)}",
+                "label": f"資料{num}：{os.path.basename(path)}",
                 "path": path,
                 "filename": os.path.basename(path),
             }
@@ -73,7 +76,7 @@ def load_dataset(path: str) -> pd.DataFrame:
 def default_dataset_path() -> str | None:
     """回傳預設實際資料的完整路徑。
 
-    優先找 DEFAULT_DATASET_FILENAME；找不到就用掃描到的第一個內建資料；都沒有回 None。
+    只回傳明確指定的預設檔，避免缺檔時靜默分析另一份資料。
     """
     found = discover_datasets()
     if not found:
@@ -81,4 +84,4 @@ def default_dataset_path() -> str | None:
     for d in found:
         if d["filename"] == DEFAULT_DATASET_FILENAME:
             return d["path"]
-    return found[0]["path"]
+    return None

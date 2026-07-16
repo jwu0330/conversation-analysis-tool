@@ -76,7 +76,7 @@ def one_way_anova(
             interpretation="有組別樣本過少。", alpha=alpha,
         )
 
-    f_stat, p = stats.f_oneway(*samples)
+    classic_f, classic_p = stats.f_oneway(*samples)
     grand = float(data[value_col].mean())
     n_total = len(data)
     ss_between = float(sum(len(s) * (s.mean() - grand) ** 2 for s in samples))
@@ -88,9 +88,19 @@ def one_way_anova(
 
     lev_stat, lev_p = stats.levene(*samples, center="mean")
     warnings: list[str] = []
+    use_welch = bool(lev_p < alpha)
+    if use_welch:
+        import pingouin as pg
+        welch = pg.welch_anova(data=data, dv=value_col, between=group_col).iloc[0]
+        p_col = "p-unc" if "p-unc" in welch.index else "p_unc"
+        f_stat, p = float(welch["F"]), float(welch[p_col])
+        df_b_display, df_w_display = float(welch["ddof1"]), float(welch["ddof2"])
+    else:
+        f_stat, p = float(classic_f), float(classic_p)
+        df_b_display, df_w_display = df_b, df_w
     if lev_p < alpha:
-        warnings.append(f"Levene p = {lev_p:.4f} < {alpha}：各組變異數不同質，"
-                        "F 檢定需謹慎（可考慮 Welch ANOVA 或無母數 Kruskal-Wallis）。")
+        warnings.append(f"Levene p = {lev_p:.4f} < {alpha}：已自動改用 Welch ANOVA，"
+                        "事後比較改用 Games-Howell。")
 
     desc = (
         data.groupby(group_col)[value_col]
@@ -98,11 +108,12 @@ def one_way_anova(
         .reset_index().rename(columns={group_col: "組別"})
     )
     anova_tbl = pd.DataFrame([
-        {"來源": "組間", "平方和": round(ss_between, 3), "自由度": df_b,
-         "平均平方": round(ss_between / df_b, 3) if df_b else None,
+        {"來源": "組間（Welch 修正）" if use_welch else "組間", "平方和": round(ss_between, 3),
+         "自由度": round(df_b_display, 3),
+         "平均平方": None if use_welch else (round(ss_between / df_b, 3) if df_b else None),
          "F": round(float(f_stat), 4), "p值": round(float(p), 4), "η²": round(eta2, 3)},
-        {"來源": "組內", "平方和": round(ss_within, 3), "自由度": df_w,
-         "平均平方": round(ss_within / df_w, 3) if df_w else None,
+        {"來源": "組內", "平方和": round(ss_within, 3), "自由度": round(df_w_display, 3),
+         "平均平方": None if use_welch else (round(ss_within / df_w, 3) if df_w else None),
          "F": None, "p值": None, "η²": None},
         {"來源": "總和", "平方和": round(ss_total, 3), "自由度": n_total - 1,
          "平均平方": None, "F": None, "p值": None, "η²": None},
@@ -110,32 +121,65 @@ def one_way_anova(
 
     tukey_df = None
     try:
-        from statsmodels.stats.multicomp import pairwise_tukeyhsd
-        tuk = pairwise_tukeyhsd(data[value_col].to_numpy(float),
-                                data[group_col].to_numpy(), alpha=alpha)
-        tukey_df = pd.DataFrame(tuk._results_table.data[1:],
-                                columns=tuk._results_table.data[0])
+        if use_welch:
+            import pingouin as pg
+            tukey_df = pg.pairwise_gameshowell(data=data, dv=value_col, between=group_col)
+        else:
+            from statsmodels.stats.multicomp import pairwise_tukeyhsd
+            tuk = pairwise_tukeyhsd(data[value_col].to_numpy(float),
+                                    data[group_col].to_numpy(), alpha=alpha)
+            tukey_df = pd.DataFrame(tuk._results_table.data[1:],
+                                    columns=tuk._results_table.data[0])
     except Exception:  # noqa: BLE001
         pass
 
     sig = "達統計顯著" if p < alpha else "未達統計顯著"
     interp = (
-        f"共 {k} 組、總樣本 {n_total}。F({df_b}, {df_w}) = {f_stat:.3f}，p = {p:.4f}，{sig}"
+        f"共 {k} 組、總樣本 {n_total}。"
+        f"{'Welch ' if use_welch else ''}F({df_b_display:.0f}, {df_w_display:.2f}) = {f_stat:.3f}，p = {p:.4f}，{sig}"
         f"（α = {alpha}）。效果量 η² = {eta2:.3f}（{mag}）。"
-        + ("各組平均數間存在顯著差異，詳見 Tukey 事後比較。" if p < alpha
+        + ((f"各組平均數間存在顯著差異，詳見{'Games-Howell' if use_welch else 'Tukey HSD'}事後比較。") if p < alpha
            else "尚無足夠證據顯示各組平均數有差異。")
     )
     return TestResult(
-        method="一因子變異數分析 One-way ANOVA",
+        method="Welch 一因子 ANOVA" if use_welch else "一因子變異數分析 One-way ANOVA",
         applicable="一個分類欄（≥3 組佳）+ 一個連續數值欄；無共變量",
         statistic=float(f_stat), p_value=float(p),
         effect_size={"η²": float(eta2), "強度": mag},
         extra={
             "組數": k, "總樣本": n_total, "df組間": df_b, "df組內": df_w,
             "Levene_F": round(float(lev_stat), 3), "Levene_p": round(float(lev_p), 4),
+            "採用方法": "Welch ANOVA + Games-Howell" if use_welch else "傳統 ANOVA + Tukey HSD",
             "描述統計": desc, "ANOVA表": anova_tbl, "Tukey事後": tukey_df,
         },
         warnings=warnings, interpretation=interp, alpha=alpha,
+    )
+
+
+def friedman_count_test(
+    df: pd.DataFrame, unit_col: str, category_col: str, alpha: float = 0.05
+) -> TestResult:
+    """同一觀察單位跨多類別的計數比較；使用 Friedman 重複量數檢定。"""
+    grid = df.groupby([unit_col, category_col]).size().unstack(fill_value=0)
+    if grid.shape[0] < 2 or grid.shape[1] < 3:
+        return TestResult(
+            method="Friedman 重複量數檢定", applicable="至少 2 個觀察單位、3 個類別",
+            statistic=float("nan"), p_value=float("nan"),
+            warnings=["Friedman 檢定至少需要 2 個觀察單位與 3 個類別。"],
+            interpretation="資料量不足，無法執行 Friedman 檢定。", alpha=alpha,
+        )
+    stat, p = stats.friedmanchisquare(*(grid[c].to_numpy(float) for c in grid.columns))
+    n, k = grid.shape
+    kendall_w = float(stat / (n * (k - 1)))
+    sig = "達統計顯著" if p < alpha else "未達統計顯著"
+    return TestResult(
+        method="Friedman 重複量數檢定",
+        applicable="同一觀察單位在 3 個以上類別的計數比較",
+        statistic=float(stat), p_value=float(p),
+        effect_size={"Kendall's W": kendall_w},
+        extra={"觀察單位數": n, "類別數": k, "自由度": k - 1, "計數矩陣": grid.reset_index()},
+        interpretation=(f"χ²({k - 1}) = {stat:.3f}，p = {p:.4f}，{sig}；"
+                        f"Kendall's W = {kendall_w:.3f}。"), alpha=alpha,
     )
 
 

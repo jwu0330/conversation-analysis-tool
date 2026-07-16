@@ -131,39 +131,41 @@ with tab_anova:
                             index=(cat_cols.index("學生") if "學生" in cat_cols else 0), key="anova_unit")
         cat = c2.selectbox("分類欄（因子，例：知識點）", [c for c in cat_cols if c != unit],
                            index=0, key="anova_cat")
-        fillzero = c3.checkbox("缺項補 0", value=True)
-        grid = df.groupby([unit, cat]).size()
-        if fillzero:
-            grid = grid.unstack(fill_value=0).stack()
-        counts = grid.reset_index(name="問題數量")
+        c3.caption("未出現的組合依計數定義補 0")
+        counts = df.groupby([unit, cat]).size().unstack(fill_value=0).stack().reset_index(name="問題數量")
         run_df, run_dv, run_fac = counts, "問題數量", cat
         with st.expander(f"計數表（{run_df.shape[0]} 列：{unit} × {cat}）"):
             st.dataframe(run_df, width="stretch", hide_index=True)
 
     if st.button("執行 ANOVA", type="primary"):
-        r = stat_tests.one_way_anova(run_df, run_dv, run_fac, alpha=a_alpha)
+        r = (stat_tests.one_way_anova(run_df, run_dv, run_fac, alpha=a_alpha)
+             if mode == "用現有數值欄"
+             else stat_tests.friedman_count_test(df, unit, cat, alpha=a_alpha))
         if r.p_value != r.p_value:
             st.error(r.interpretation)
             for w in r.warnings:
                 st.warning(w)
         else:
             if r.significant:
-                st.success(f"✅ F = {r.statistic:.3f}，p = {r.p_value:.4f} < {a_alpha}，"
-                           f"達顯著（η² = {r.effect_size['η²']:.3f}，{r.effect_size['強度']}）。")
+                symbol = "F" if mode == "用現有數值欄" else "χ²"
+                st.success(f"✅ {symbol} = {r.statistic:.3f}，p = {r.p_value:.4f} < {a_alpha}，"
+                           f"達顯著。")
             else:
-                st.info(f"ℹ️ F = {r.statistic:.3f}，p = {r.p_value:.4f} ≥ {a_alpha}，未達顯著。")
+                symbol = "F" if mode == "用現有數值欄" else "χ²"
+                st.info(f"ℹ️ {symbol} = {r.statistic:.3f}，p = {r.p_value:.4f} ≥ {a_alpha}，未達顯著。")
             st.markdown(f"**解釋**：{r.interpretation}")
 
-            st.markdown("**各組描述統計**")
-            st.dataframe(r.extra["描述統計"], width="stretch", hide_index=True)
-            st.markdown("**ANOVA 摘要表**")
-            st.dataframe(r.extra["ANOVA表"], width="stretch", hide_index=True)
-            lc = st.columns(3)
-            lc[0].metric("Levene F", r.extra["Levene_F"])
-            lc[1].metric("Levene p", r.extra["Levene_p"])
-            lc[2].metric("變異數同質", "是" if r.extra["Levene_p"] >= a_alpha else "否")
+            if mode == "用現有數值欄":
+                st.markdown("**各組描述統計**")
+                st.dataframe(r.extra["描述統計"], width="stretch", hide_index=True)
+                st.markdown("**ANOVA 摘要表**")
+                st.dataframe(r.extra["ANOVA表"], width="stretch", hide_index=True)
+                lc = st.columns(3)
+                lc[0].metric("Levene F", r.extra["Levene_F"])
+                lc[1].metric("Levene p", r.extra["Levene_p"])
+                lc[2].metric("採用方法", r.extra["採用方法"])
             if r.extra.get("Tukey事後") is not None:
-                st.markdown("**Tukey HSD 事後兩兩比較**")
+                st.markdown(f"**{r.extra['採用方法'].split(' + ')[-1]} 事後兩兩比較**")
                 st.dataframe(r.extra["Tukey事後"], width="stretch", hide_index=True)
             if r.warnings:
                 st.warning("\n".join(f"- {w}" for w in r.warnings))

@@ -18,7 +18,11 @@ CSV_ENCODINGS = ["utf-8-sig", "utf-8", "big5", "cp950", "gbk", "latin1"]
 def _to_buffer(file: Any) -> Any:
     """把可能被重複讀取的 file-like 物件轉為可 seek 的 BytesIO。"""
     if hasattr(file, "read"):
+        if hasattr(file, "seek"):
+            file.seek(0)
         data = file.read()
+        if hasattr(file, "seek"):
+            file.seek(0)
         if isinstance(data, str):
             data = data.encode("utf-8")
         return io.BytesIO(data)
@@ -30,17 +34,21 @@ def is_excel(filename: str) -> bool:
     return name.endswith((".xlsx", ".xls", ".xlsm"))
 
 
-def get_excel_sheets(file: Any) -> list[str]:
+def _excel_engine(filename: str) -> str:
+    return "xlrd" if (filename or "").lower().endswith(".xls") else "openpyxl"
+
+
+def get_excel_sheets(file: Any, filename: str = "") -> list[str]:
     """回傳 Excel 檔的所有工作表名稱。"""
     buf = _to_buffer(file)
-    with pd.ExcelFile(buf, engine="openpyxl") as xls:
+    with pd.ExcelFile(buf, engine=_excel_engine(filename)) as xls:
         return list(xls.sheet_names)
 
 
-def load_excel(file: Any, sheet_name: str | int = 0) -> pd.DataFrame:
+def load_excel(file: Any, sheet_name: str | int = 0, filename: str = "") -> pd.DataFrame:
     """讀取指定工作表為 DataFrame。"""
     buf = _to_buffer(file)
-    return pd.read_excel(buf, sheet_name=sheet_name, engine="openpyxl")
+    return pd.read_excel(buf, sheet_name=sheet_name, engine=_excel_engine(filename))
 
 
 def load_csv(file: Any) -> pd.DataFrame:
@@ -61,5 +69,5 @@ def load_csv(file: Any) -> pd.DataFrame:
 def load_any(file: Any, filename: str, sheet_name: str | int = 0) -> pd.DataFrame:
     """依副檔名自動選擇讀取方式。"""
     if is_excel(filename):
-        return load_excel(file, sheet_name=sheet_name)
+        return load_excel(file, sheet_name=sheet_name, filename=filename)
     return load_csv(file)
