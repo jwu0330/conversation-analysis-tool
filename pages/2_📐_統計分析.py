@@ -245,6 +245,12 @@ st.info(
     f"共變量(前測)：**{', '.join(covars) if covars else '（尚未選）'}**　｜　α = {alpha}"
 )
 st.caption("提醒（講義 p30）：前測**不要**單獨跑 t 檢定證明組別同質，直接以前測作共變量進 ANCOVA。")
+_student = _student_column()
+if _student and df[_student].dropna().duplicated().any():
+    st.warning(
+        f"⚠️ 資料中同一「{_student}」有多列。ANCOVA 會把每一列當作獨立樣本（與 SPSS 相同），"
+        "若一位學生只該算一筆，請改用學生層級資料（每人一列：組別、前測、後測）。"
+    )
 
 if not st.button("▶️ 一鍵執行 ANCOVA（跑完整 SPSS 流程）", type="primary"):
     st.caption("按上方按鈕即依講義流程一次跑完。預設會自動帶入前測／後測／組別。")
@@ -279,7 +285,7 @@ else:
 state.register_export_table("ANCOVA_2_常態性", res.normality)
 
 # ③ Levene
-st.subheader("③ 變異數同質性檢定（Levene，以平均為中心）")
+st.subheader("③ 變異數同質性檢定（Levene，以模型殘差計算，同 SPSS）")
 lv = res.levene
 c = st.columns(4)
 c[0].metric("F", lv["F"])

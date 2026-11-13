@@ -119,7 +119,9 @@ def _normality(d: pd.DataFrame, group: str, alpha: float) -> tuple[pd.DataFrame,
             stat_v, p = stats.shapiro(y)
             name = "Shapiro-Wilk"
         elif lilliefors is not None:
-            stat_v, p = lilliefors(y, dist="norm")
+            # SPSS EXAMINE：Dallal-Wilkinson 近似，p > .2 不計算，只報 .200（真實顯著性下限）
+            stat_v, p = lilliefors(y, dist="norm", pvalmethod="approx")
+            p = min(float(p), 0.2)
             name = "Kolmogorov-Smirnov"
         else:  # pragma: no cover
             stat_v, p = stats.kstest((y - y.mean()) / y.std(ddof=1), "norm")
@@ -166,11 +168,16 @@ def run_ancova(
     normality, normality_ok = _normality(d, group, alpha)
     if not normality_ok:
         warnings.append("至少一組未通過常態性檢定（p < α）。")
-        decisions.append("【常態性不滿足】改用無母數檢定（Mann-Whitney U，對應獨立樣本 t 檢定）。")
+        decisions.append("【常態性不滿足】改用無母數檢定（2 組：Mann-Whitney U；3 組以上：Kruskal-Wallis）。"
+                         if k > 2 else
+                         "【常態性不滿足】改用無母數檢定（Mann-Whitney U，對應獨立樣本 t 檢定）。")
 
-    # === 3. Levene 變異數同質性（以平均為中心）===
-    samples = [g["Y"].to_numpy(float) for _, g in d.groupby("G")]
-    lev_stat, lev_p = stats.levene(*samples, center="mean")
+    # === 3. Levene 變異數同質性 ===
+    # SPSS UNIANOVA：對「設計模型（截距 + 共變量 + 組別）殘差的絕對值」做單因子 ANOVA；
+    # 無共變量時即等同以平均為中心的傳統 Levene。
+    model = smf.ols(f"Y ~ C(G, Sum) + {xterms}", data=d).fit()
+    abs_resid = model.resid.abs()
+    lev_stat, lev_p = stats.f_oneway(*[abs_resid[d["G"] == g].to_numpy(float) for g in groups])
     levene = {
         "F": round(float(lev_stat), 3), "df1": k - 1, "df2": n_total - k,
         "p值": round(float(lev_p), 4), "同質(p≥α)": bool(lev_p >= alpha),
@@ -189,14 +196,14 @@ def run_ancova(
         .rename(columns={"PR(>F)": "p值"}).round(4).reset_index()
         .rename(columns={"index": "交乘項（組別×共變量）"})
     )
+    slope_df_resid = int(model_int.df_resid)  # 含交乘項模型的誤差自由度（報告 F 的分母 df）
     slope_min_p = float(aov_int.loc[inter_rows, "PR(>F)"].min()) if inter_rows else 1.0
     slope_ok = slope_min_p >= alpha
     if not slope_ok:
         warnings.append(f"迴歸斜率同質性 p = {slope_min_p:.4f} < {alpha}：組內迴歸係數不同質。")
         decisions.append("【斜率不同質】依講義：改用詹森-內曼法（Johnson-Neyman）找顯著區間。")
 
-    # === 5. 主分析 ANCOVA（完全因子設計、型 III）===
-    model = smf.ols(f"Y ~ C(G, Sum) + {xterms}", data=d).fit()
+    # === 5. 主分析 ANCOVA（完全因子設計、型 III；model 已於步驟 3 估計）===
     aov = anova_lm(model, typ=3)
     ss_resid = float(aov.loc["Residual", "sum_sq"])
     df_resid = float(aov.loc["Residual", "df"])
@@ -315,12 +322,12 @@ def run_ancova(
     # === 文章寫法（中/英，套講義模板）===
     lev_txt_en = _p_apa(lev_p)
     slope_reports_en = "; ".join(
-        f"{r['交乘項（組別×共變量）']}: F({int(r['df'])}, {int(df_resid)}) = {float(r['F']):.2f}, "
+        f"{r['交乘項（組別×共變量）']}: F({int(r['df'])}, {slope_df_resid}) = {float(r['F']):.2f}, "
         f"{_p_apa(float(r['p值']))}"
         for _, r in slope_tbl.iterrows()
     )
     slope_reports_zh = "；".join(
-        f"{r['交乘項（組別×共變量）']}：F({int(r['df'])}, {int(df_resid)}) = {float(r['F']):.2f}，"
+        f"{r['交乘項（組別×共變量）']}：F({int(r['df'])}, {slope_df_resid}) = {float(r['F']):.2f}，"
         f"{_p_apa(float(r['p值']))}"
         for _, r in slope_tbl.iterrows()
     )

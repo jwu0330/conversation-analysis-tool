@@ -142,6 +142,59 @@ def test_ancova_multiple_covariates_reports_matching_terms():
         assert term in r.article_en and term in r.article_zh
 
 
+def test_ancova_levene_uses_model_residuals_like_spss():
+    frame = pd.DataFrame({
+        "grp": ["A"] * 6 + ["B"] * 6,
+        "pre": [1, 2, 3, 4, 5, 6, 2, 3, 4, 5, 6, 9],
+        "post": [2, 4, 5, 6, 7, 9, 3, 3, 6, 6, 9, 15],
+    })
+    r = ancova.run_ancova(frame, "post", "grp", ["pre"])
+    # 手算：先以 post ~ grp + pre 取殘差，再對 |殘差| 做單因子 ANOVA
+    import statsmodels.formula.api as smf
+    from scipy import stats
+    resid = smf.ols("post ~ C(grp) + pre", data=frame).fit().resid.abs()
+    f, p = stats.f_oneway(resid[frame["grp"] == "A"], resid[frame["grp"] == "B"])
+    assert abs(r.levene["F"] - round(f, 3)) < 1e-9
+    assert abs(r.levene["p值"] - round(p, 4)) < 1e-9
+
+
+def test_ancova_slope_report_uses_interaction_model_df():
+    frame = pd.DataFrame({
+        "grp": ["A"] * 5 + ["B"] * 5,
+        "pre": [1, 2, 3, 4, 5, 2, 3, 4, 5, 6],
+        "post": [2, 4, 5, 6, 7, 3, 3, 6, 6, 9],
+    })
+    r = ancova.run_ancova(frame, "post", "grp", ["pre"])
+    # n=10、2 組、1 共變量：含交乘項模型誤差 df = 10 - 4 = 6（主模型才是 7）
+    assert "F(1, 6)" in r.article_en and "F(1, 6)" in r.article_zh
+
+
+def test_kendall_uses_asymptotic_p():
+    from scipy import stats
+    frame = pd.DataFrame({"a": [1, 2, 3, 4, 5, 6, 7], "b": [2, 1, 4, 3, 6, 7, 5]})
+    row = descriptive.correlation_pairs(frame, ["a", "b"], method="kendall").iloc[0]
+    expected = stats.kendalltau(frame["a"], frame["b"], method="asymptotic").pvalue
+    assert row["p值"] == round(float(expected), 4)
+
+
+def test_describe_counts_use_raw_column_for_categorical():
+    out = descriptive.describe_numeric(pd.Series(["甲", "乙", None, "甲"]),
+                                       ["count", "missing", "unique"]).set_index("統計量")["數值"]
+    assert out["總筆數"] == 3 and out["缺漏值數量"] == 1 and out["不重複值數量"] == 2
+
+
+def test_t_test_reports_df():
+    df = _sample_df()
+    r = stat_tests.independent_t_test(df, "分數", "組別")
+    assert r.extra["自由度"] == 10.0 or r.extra["採用方法"].startswith("Welch")
+    assert "t(" in r.interpretation
+
+
+def test_frequency_cumulative_not_from_rounded_percent():
+    out = descriptive.frequency_table(pd.Series(["a", "b", "c"]))
+    assert out["累積百分比(%)"].iloc[-1] == 100.0
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in sorted(globals().items()):

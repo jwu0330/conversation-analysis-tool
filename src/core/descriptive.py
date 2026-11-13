@@ -28,8 +28,10 @@ def describe_numeric(series: pd.Series, funcs: list[str] | None = None) -> pd.Da
         if key not in NUMERIC_STATS:
             continue
         label, fn = NUMERIC_STATS[key]
+        # 筆數類統計用原始欄位；否則類別欄被轉成 NaN 後會變成 0 筆、全部缺漏
+        src = series if key in ("count", "missing", "unique") else s
         try:
-            value = fn(s)
+            value = fn(src)
         except (ValueError, TypeError):
             value = float("nan")
         rows.append({"統計量": label, "數值": value})
@@ -53,8 +55,9 @@ def correlation_pairs(
 
     from scipy import stats
 
+    # Kendall 固定用漸近常態近似（SPSS NONPAR CORR 的做法）；scipy 預設小樣本會改算精確 p
     fn = {"pearson": stats.pearsonr, "spearman": stats.spearmanr,
-          "kendall": stats.kendalltau}[method]
+          "kendall": lambda x, y: stats.kendalltau(x, y, method="asymptotic")}[method]
     rows: list[dict] = []
     for a, b in combinations(cols, 2):
         pair = df[[a, b]].apply(pd.to_numeric, errors="coerce").dropna()
@@ -76,6 +79,7 @@ def frequency_table(series: pd.Series, dropna: bool = True) -> pd.DataFrame:
     out = pd.DataFrame({"類別": counts.index.astype(str), "次數": counts.values})
     out["比例"] = (out["次數"] / total).round(4) if total else 0.0
     out["百分比(%)"] = (out["次數"] / total * 100).round(2) if total else 0.0
-    out["累積百分比(%)"] = out["百分比(%)"].cumsum().round(2)
+    # 累積百分比由未四捨五入的次數計算，避免進位誤差累加（同 SPSS）
+    out["累積百分比(%)"] = (out["次數"].cumsum() / total * 100).round(2) if total else 0.0
     out["排名"] = out["次數"].rank(ascending=False, method="min").astype(int)
     return out.reset_index(drop=True)

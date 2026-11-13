@@ -210,7 +210,8 @@ def independent_t_test(
     data = df[[value_col, group_col]].dropna().copy()
     data[value_col] = pd.to_numeric(data[value_col], errors="coerce")
     data = data.dropna()
-    groups = list(data[group_col].astype(str).unique())
+    # 固定排序（與 ANOVA / ANCOVA 一致），避免 t 與 d 的正負號隨資料列順序改變
+    groups = sorted(data[group_col].astype(str).unique())
 
     if len(groups) != 2:
         return TestResult(
@@ -235,7 +236,8 @@ def independent_t_test(
             f"Levene 檢定 p = {lev_p:.4f} < {alpha}，兩組變異數不同質，改用 Welch's t。"
         )
 
-    t_stat, p = stats.ttest_ind(g0, g1, equal_var=equal_var)
+    tt = stats.ttest_ind(g0, g1, equal_var=equal_var)
+    t_stat, p, t_df = tt.statistic, tt.pvalue, float(tt.df)  # Welch 時為小數 df（同 SPSS）
 
     # Cohen's d（用合併標準差）
     n0, n1 = len(g0), len(g1)
@@ -249,7 +251,7 @@ def independent_t_test(
     sig_txt = "達統計顯著" if p < alpha else "未達統計顯著"
     interp = (
         f"{groups[0]} 平均 = {g0.mean():.3f}（n={n0}）、{groups[1]} 平均 = {g1.mean():.3f}"
-        f"（n={n1}）。t = {t_stat:.3f}，p = {p:.4f}，{sig_txt}（α = {alpha}）。"
+        f"（n={n1}）。t({t_df:.{0 if equal_var else 3}f}) = {t_stat:.3f}，p = {p:.4f}，{sig_txt}（α = {alpha}）。"
         f"效果量 Cohen's d = {d:.3f}（{mag}）。"
     )
 
@@ -265,6 +267,7 @@ def independent_t_test(
             f"{groups[1]}_平均": round(float(g1.mean()), 4),
             f"{groups[0]}_n": n0,
             f"{groups[1]}_n": n1,
+            "自由度": round(t_df, 3),
             "Levene_p": round(float(lev_p), 4),
             "採用方法": method_txt,
         },
