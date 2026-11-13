@@ -210,7 +210,8 @@ def independent_t_test(
     data = df[[value_col, group_col]].dropna().copy()
     data[value_col] = pd.to_numeric(data[value_col], errors="coerce")
     data = data.dropna()
-    groups = list(data[group_col].astype(str).unique())
+    # 固定排序（與 ANOVA / ANCOVA 一致），避免 t 與 d 的正負號隨資料列順序改變
+    groups = sorted(data[group_col].astype(str).unique())
 
     if len(groups) != 2:
         return TestResult(

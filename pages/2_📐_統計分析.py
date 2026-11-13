@@ -279,7 +279,7 @@ else:
 state.register_export_table("ANCOVA_2_常態性", res.normality)
 
 # ③ Levene
-st.subheader("③ 變異數同質性檢定（Levene，以平均為中心）")
+st.subheader("③ 變異數同質性檢定（Levene，以模型殘差計算，同 SPSS）")
 lv = res.levene
 c = st.columns(4)
 c[0].metric("F", lv["F"])
