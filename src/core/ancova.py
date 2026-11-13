@@ -168,7 +168,9 @@ def run_ancova(
     normality, normality_ok = _normality(d, group, alpha)
     if not normality_ok:
         warnings.append("至少一組未通過常態性檢定（p < α）。")
-        decisions.append("【常態性不滿足】改用無母數檢定（Mann-Whitney U，對應獨立樣本 t 檢定）。")
+        decisions.append("【常態性不滿足】改用無母數檢定（2 組：Mann-Whitney U；3 組以上：Kruskal-Wallis）。"
+                         if k > 2 else
+                         "【常態性不滿足】改用無母數檢定（Mann-Whitney U，對應獨立樣本 t 檢定）。")
 
     # === 3. Levene 變異數同質性 ===
     # SPSS UNIANOVA：對「設計模型（截距 + 共變量 + 組別）殘差的絕對值」做單因子 ANOVA；

@@ -177,6 +177,19 @@ def test_kendall_uses_asymptotic_p():
     assert row["p值"] == round(float(expected), 4)
 
 
+def test_describe_counts_use_raw_column_for_categorical():
+    out = descriptive.describe_numeric(pd.Series(["甲", "乙", None, "甲"]),
+                                       ["count", "missing", "unique"]).set_index("統計量")["數值"]
+    assert out["總筆數"] == 3 and out["缺漏值數量"] == 1 and out["不重複值數量"] == 2
+
+
+def test_t_test_reports_df():
+    df = _sample_df()
+    r = stat_tests.independent_t_test(df, "分數", "組別")
+    assert r.extra["自由度"] == 10.0 or r.extra["採用方法"].startswith("Welch")
+    assert "t(" in r.interpretation
+
+
 def test_frequency_cumulative_not_from_rounded_percent():
     out = descriptive.frequency_table(pd.Series(["a", "b", "c"]))
     assert out["累積百分比(%)"].iloc[-1] == 100.0
